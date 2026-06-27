@@ -1,1 +1,72 @@
+# Build outputs
+target/
+out/
+build/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven / Gradle local files
+.mvn/timing.properties
+!.mvn/wrapper/maven-wrapper.jar
+.gradle/
+
+# IDE and editor personal files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and runtime files
+logs/
+*.log
+*.pid
+*.hprof
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+application-local.properties
+application-secret.yml
+application-secret.yaml
+application-secret.properties
+application-*.local.yml
+application-*.local.yaml
+application-*.local.properties
+
+# Uploaded files and generated data
+uploads/
+data/
+tmp/
+temp/
+*.tmp
+
+# Test and coverage output
+coverage/
+reports/
+surefire-reports/
+failsafe-reports/
+
+# Large local assets
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.sql
+*.dump
+*.bak
 
