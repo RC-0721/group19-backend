@@ -81,3 +81,37 @@ If Nginx proxies `/api/` to `127.0.0.1:8080`, verify from a browser or local ter
 curl http://<server-ip>/api/health
 ```
 
+## Auth Login
+
+Initialize the minimal user table before testing login against MySQL:
+
+```bash
+mysql -u <user> -p <database> < src/main/resources/db/init-auth.sql
+```
+
+Required environment variables for runtime database access:
+
+```bash
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_DATABASE=teaching_sys
+MYSQL_USERNAME=teaching_user
+MYSQL_PASSWORD=<password>
+```
+
+Login request:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"account":"student001","password":"123456","role":"STUDENT"}'
+```
+
+Demo accounts inserted by `init-auth.sql`:
+
+| Account | Password | Role |
+| --- | --- | --- |
+| `student001` | `123456` | `STUDENT` |
+| `teacher001` | `123456` | `TEACHER` |
+| `admin001` | `123456` | `EDU_ADMIN` |
+

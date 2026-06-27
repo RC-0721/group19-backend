@@ -67,6 +67,7 @@ failsafe-reports/
 *.tar
 *.gz
 *.sql
+!src/main/resources/db/*.sql
 *.dump
 *.bak
 # Local development records
@@ -74,4 +75,5 @@ plan.txt
 dev-logs/
 prompt.txt
 maintenance.md
+
 
