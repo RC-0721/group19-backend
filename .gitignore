@@ -69,4 +69,6 @@ failsafe-reports/
 *.sql
 *.dump
 *.bak
-
+# Local development records
+plan.txt
+dev-logs/
