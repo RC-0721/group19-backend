@@ -6,11 +6,15 @@ import com.group19.teaching.domain.dto.LoginRequest;
 import com.group19.teaching.domain.entity.User;
 import com.group19.teaching.domain.vo.LoginResponse;
 import com.group19.teaching.repository.UserRepository;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class AuthService {
@@ -19,6 +23,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final Map<String, User> sessions = new ConcurrentHashMap<>();
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
@@ -41,9 +46,29 @@ public class AuthService {
             throw new BusinessException(ErrorCode.AUTH_FAILED);
         }
 
-        // Temporary token until request authentication is introduced.
         String token = UUID.randomUUID().toString();
+        sessions.put(token, user);
         // Menu values are placeholders for the first frontend contract.
         return new LoginResponse(token, String.valueOf(user.getId()), user.getName(), user.getRole(), List.of());
+    }
+
+    public User requireRole(String token, String... roles) {
+        if (!StringUtils.hasText(token)) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED);
+        }
+        User user = sessions.get(normalizeToken(token));
+        if (user == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED);
+        }
+        boolean allowed = Arrays.stream(roles).anyMatch(role -> role.equalsIgnoreCase(user.getRole()));
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        return user;
+    }
+
+    private String normalizeToken(String token) {
+        String value = token.trim();
+        return value.regionMatches(true, 0, "Bearer ", 0, 7) ? value.substring(7).trim() : value;
     }
 }

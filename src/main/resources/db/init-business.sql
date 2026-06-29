@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS course_material (
   INDEX idx_material_chapter (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS material_parse_task (
+  parse_task_id VARCHAR(64) PRIMARY KEY,
+  material_id VARCHAR(64) NOT NULL,
+  task_status VARCHAR(20) NOT NULL DEFAULT '解析中',
+  error_message TEXT,
+  started_time DATETIME,
+  finished_time DATETIME,
+  INDEX idx_parse_task_material (material_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS pre_task (
   task_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
@@ -91,6 +101,19 @@ CREATE TABLE IF NOT EXISTS knowledge_point (
   audit_status VARCHAR(20) NOT NULL DEFAULT '已发布',
   INDEX idx_knowledge_course (course_id),
   INDEX idx_knowledge_chapter (chapter_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS knowledge_chunk (
+  chunk_id VARCHAR(64) PRIMARY KEY,
+  material_id VARCHAR(64) NOT NULL,
+  knowledge_id VARCHAR(64),
+  chunk_text TEXT NOT NULL,
+  embedding_id VARCHAR(100),
+  version VARCHAR(50),
+  status VARCHAR(20) NOT NULL DEFAULT '待审核',
+  INDEX idx_chunk_material (material_id),
+  INDEX idx_chunk_knowledge (knowledge_id),
+  INDEX idx_chunk_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS job_direction (
@@ -176,6 +199,11 @@ INSERT INTO course_material (material_id, course_id, chapter_id, file_name, file
   ('material-jg-002', 'course-java-001', 'chapter-db-001', 'JavaGuide 数据库题目', 'markdown', 'data/Apache-2.0/JavaGuide/docs/database', '已发布')
 ON DUPLICATE KEY UPDATE file_name=VALUES(file_name), file_type=VALUES(file_type), storage_path=VALUES(storage_path), parse_status=VALUES(parse_status);
 
+INSERT INTO material_parse_task (parse_task_id, material_id, task_status, error_message, started_time, finished_time) VALUES
+  ('parse-jg-001', 'material-jg-001', '已完成', NULL, NOW(), NOW()),
+  ('parse-jg-002', 'material-jg-002', '已完成', NULL, NOW(), NOW())
+ON DUPLICATE KEY UPDATE task_status=VALUES(task_status), error_message=VALUES(error_message), finished_time=VALUES(finished_time);
+
 INSERT INTO pre_task (task_id, course_id, chapter_id, title, task_type, status) VALUES
   ('pre-java-001', 'course-java-001', 'chapter-java-001', '阅读 Java 基础与面向对象知识点', '阅读', '已发布')
 ON DUPLICATE KEY UPDATE title=VALUES(title), task_type=VALUES(task_type), status=VALUES(status);
@@ -198,6 +226,11 @@ INSERT INTO knowledge_point (knowledge_id, course_id, chapter_id, name, level, s
   ('kp-007', 'course-java-001', 'chapter-db-001', '缓存', '基础', 'JavaGuide', '已发布'),
   ('kp-008', 'course-java-001', 'chapter-db-001', '网络协议', '基础', 'JavaGuide', '已发布')
 ON DUPLICATE KEY UPDATE name=VALUES(name), level=VALUES(level), source=VALUES(source), audit_status=VALUES(audit_status);
+
+INSERT INTO knowledge_chunk (chunk_id, material_id, knowledge_id, chunk_text, embedding_id, version, status) VALUES
+  ('chunk-jg-001', 'material-jg-001', 'kp-001', 'Java 基础课程资料覆盖 Java 语言特点、字节码、面向对象、集合和并发等核心知识。', NULL, 'v1', '已发布'),
+  ('chunk-jg-002', 'material-jg-002', 'kp-006', '数据库课程资料覆盖 MySQL 基础、字段类型、事务、索引和 Redis 缓存等核心知识。', NULL, 'v1', '已发布')
+ON DUPLICATE KEY UPDATE chunk_text=VALUES(chunk_text), knowledge_id=VALUES(knowledge_id), version=VALUES(version), status=VALUES(status);
 
 INSERT INTO job_direction (job_id, job_name, job_description, difficulty_level, status) VALUES
   ('job-java-backend', 'Java 后端开发工程师', '面向 Java Web、数据库、缓存、网络和后端框架的就业方向。', '初中级', '启用')

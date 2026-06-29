@@ -13,3 +13,6 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
+
+teaching:
+  upload-dir: ${TEACHING_UPLOAD_DIR:data/uploads}

@@ -4,9 +4,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.group19.teaching.service.AuthService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(StudentDashboardController.class)
@@ -14,6 +16,9 @@ class StudentDashboardControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private AuthService authService;
 
     @Test
     void dashboardReturnsFrontendIntegrationData() throws Exception {

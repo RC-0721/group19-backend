@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.group19.teaching.service.QuestionService;
+import com.group19.teaching.service.AuthService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,9 @@ class QuestionControllerTest {
     @MockBean
     private QuestionService questionService;
 
+    @MockBean
+    private AuthService authService;
+
     @Test
     void listReturnsPagedQuestionData() throws Exception {
         when(questionService.list(null, "source-javaguide", "job-java-backend", null, "泛型", null, null, 1, 10)).thenReturn(Map.of(
@@ -38,6 +42,7 @@ class QuestionControllerTest {
                 "page_size", 10
         ));
         mockMvc.perform(get("/api/questions")
+                        .header("token", "demo-token")
                         .param("page_no", "1")
                         .param("page_size", "10")
                         .param("source_id", "source-javaguide")

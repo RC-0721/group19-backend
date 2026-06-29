@@ -1,6 +1,7 @@
 package com.group19.teaching.controller;
 
 import com.group19.teaching.common.ApiResponse;
+import com.group19.teaching.service.AuthService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,8 +13,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/student")
 public class StudentDashboardController {
 
+    private final AuthService authService;
+
+    public StudentDashboardController(AuthService authService) {
+        this.authService = authService;
+    }
+
     @GetMapping("/dashboard")
     public ApiResponse<Map<String, Object>> dashboard(@RequestHeader(value = "token", required = false) String token) {
+        authService.requireRole(token, "STUDENT");
         // Mock data keeps frontend integration moving before real course tables are introduced.
         return ApiResponse.success(Map.of(
                 "courses", List.of(Map.of(

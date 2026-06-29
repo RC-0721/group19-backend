@@ -44,6 +44,31 @@ class AuthServiceTest {
     }
 
     @Test
+    void requireRoleAcceptsIssuedToken() {
+        LoginResponse response = authService.login(new LoginRequest("student001", "123456", "STUDENT"));
+
+        assertEquals("student001", authService.requireRole("Bearer " + response.token(), "STUDENT").getAccount());
+    }
+
+    @Test
+    void requireRoleRejectsMissingToken() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> authService.requireRole(null, "STUDENT"));
+
+        assertEquals(ErrorCode.AUTH_FAILED, exception.errorCode());
+    }
+
+    @Test
+    void requireRoleRejectsWrongRole() {
+        LoginResponse response = authService.login(new LoginRequest("student001", "123456", "STUDENT"));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> authService.requireRole(response.token(), "TEACHER"));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
+    }
+
+    @Test
     void loginRejectsWrongPassword() {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> authService.login(new LoginRequest("student001", "wrong", "STUDENT")));
