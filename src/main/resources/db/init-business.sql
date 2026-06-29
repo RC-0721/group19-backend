@@ -176,6 +176,29 @@ CREATE TABLE IF NOT EXISTS question_job_relation (
   INDEX idx_qjr_job_tech (job_id, tech_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS practice_record (
+  record_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  question_id VARCHAR(64) NOT NULL,
+  answer TEXT,
+  is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+  score FLOAT NOT NULL DEFAULT 0,
+  submit_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_practice_student (student_id),
+  INDEX idx_practice_question (question_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wrong_book (
+  wrong_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  question_id VARCHAR(64) NOT NULL,
+  wrong_count INT NOT NULL DEFAULT 1,
+  last_wrong_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  master_status VARCHAR(20) NOT NULL DEFAULT '未掌握',
+  UNIQUE KEY uk_wrong_student_question (student_id, question_id),
+  INDEX idx_wrong_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO data_source (source_id, source_name, source_type, source_url, license, usage_note) VALUES
   ('source-javaguide', 'JavaGuide', 'GitHub Repository', 'https://github.com/Snailclimb/JavaGuide', 'Apache-2.0', 'Keep source URL and license when displaying imported question records.')
 ON DUPLICATE KEY UPDATE source_name=VALUES(source_name), source_type=VALUES(source_type), source_url=VALUES(source_url), license=VALUES(license), usage_note=VALUES(usage_note);
