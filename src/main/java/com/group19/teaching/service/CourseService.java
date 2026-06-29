@@ -46,10 +46,10 @@ public class CourseService {
                         ORDER BY material_id
                         """, courseId),
                 "pre_tasks", jdbcTemplate.queryForList("""
-                        SELECT task_id, title, task_type, status
+                        SELECT pre_task_id AS task_id, title, task_type, status
                         FROM pre_task
                         WHERE course_id = ?
-                        ORDER BY task_id
+                        ORDER BY pre_task_id
                         """, courseId),
                 "homeworks", jdbcTemplate.queryForList("""
                         SELECT homework_id, title, status

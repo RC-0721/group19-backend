@@ -65,13 +65,43 @@ CREATE TABLE IF NOT EXISTS material_parse_task (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pre_task (
-  task_id VARCHAR(64) PRIMARY KEY,
+  pre_task_id VARCHAR(64) PRIMARY KEY,
+  task_id VARCHAR(64),
+  course_class_id VARCHAR(64) NOT NULL,
   course_id VARCHAR(64) NOT NULL,
   chapter_id VARCHAR(64),
   title VARCHAR(200) NOT NULL,
+  material_id VARCHAR(64),
+  deadline DATETIME NOT NULL,
   task_type VARCHAR(50),
   status VARCHAR(20) NOT NULL DEFAULT '已发布',
-  INDEX idx_pre_task_course (course_id)
+  INDEX idx_pre_task_course (course_id),
+  INDEX idx_pre_task_class (course_class_id),
+  INDEX idx_pre_task_material (material_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS pre_task_id VARCHAR(64);
+ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS course_class_id VARCHAR(64);
+ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS material_id VARCHAR(64);
+ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS deadline DATETIME;
+UPDATE pre_task pt SET pre_task_id = task_id WHERE pre_task_id IS NULL;
+UPDATE pre_task pt
+JOIN course_class cc ON pt.course_id = cc.course_id
+SET pt.course_class_id = cc.course_class_id
+WHERE pt.course_class_id IS NULL;
+UPDATE pre_task SET material_id = 'material-jg-001' WHERE material_id IS NULL;
+UPDATE pre_task SET deadline = '2099-12-31 23:59:59' WHERE deadline IS NULL;
+
+CREATE TABLE IF NOT EXISTS pre_task_submit (
+  submit_id VARCHAR(64) PRIMARY KEY,
+  pre_task_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  submit_content TEXT NOT NULL,
+  base_score FLOAT NOT NULL DEFAULT 0,
+  weak_points TEXT,
+  submit_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_pre_task_submit_task (pre_task_id),
+  INDEX idx_pre_task_submit_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS homework (
@@ -227,9 +257,9 @@ INSERT INTO material_parse_task (parse_task_id, material_id, task_status, error_
   ('parse-jg-002', 'material-jg-002', '已完成', NULL, NOW(), NOW())
 ON DUPLICATE KEY UPDATE task_status=VALUES(task_status), error_message=VALUES(error_message), finished_time=VALUES(finished_time);
 
-INSERT INTO pre_task (task_id, course_id, chapter_id, title, task_type, status) VALUES
-  ('pre-java-001', 'course-java-001', 'chapter-java-001', '阅读 Java 基础与面向对象知识点', '阅读', '已发布')
-ON DUPLICATE KEY UPDATE title=VALUES(title), task_type=VALUES(task_type), status=VALUES(status);
+INSERT INTO pre_task (pre_task_id, task_id, course_class_id, course_id, chapter_id, title, material_id, deadline, task_type, status) VALUES
+  ('pre-java-001', 'pre-java-001', 'class-java-001', 'course-java-001', 'chapter-java-001', '阅读 Java 基础与面向对象知识点', 'material-jg-001', '2099-12-31 23:59:59', '课前任务', '已发布')
+ON DUPLICATE KEY UPDATE title=VALUES(title), material_id=VALUES(material_id), deadline=VALUES(deadline), task_type=VALUES(task_type), status=VALUES(status);
 
 INSERT INTO homework (homework_id, course_id, chapter_id, title, status) VALUES
   ('hw-java-001', 'course-java-001', 'chapter-java-001', 'Java 基础简答题练习', '已发布')
