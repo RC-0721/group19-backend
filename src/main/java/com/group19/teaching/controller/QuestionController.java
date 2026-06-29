@@ -21,13 +21,15 @@ public class QuestionController {
     @GetMapping
     public ApiResponse<Map<String, Object>> list(
             @RequestParam(value = "knowledge_id", required = false) String knowledgeId,
+            @RequestParam(value = "source_id", required = false) String sourceId,
             @RequestParam(value = "job_id", required = false) String jobId,
             @RequestParam(value = "tech_id", required = false) String techId,
+            @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "question_type", required = false) String questionType,
             @RequestParam(value = "difficulty", required = false) String difficulty,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
         return ApiResponse.success(questionService.list(
-                knowledgeId, jobId, techId, questionType, difficulty, pageNo, pageSize));
+                knowledgeId, sourceId, jobId, techId, keyword, questionType, difficulty, pageNo, pageSize));
     }
 }

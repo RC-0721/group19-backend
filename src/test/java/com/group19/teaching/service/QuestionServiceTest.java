@@ -21,20 +21,23 @@ class QuestionServiceTest {
     @Test
     void listRejectsInvalidPageSize() {
         assertThrows(BusinessException.class,
-                () -> questionService.list(null, null, null, null, null, 1, 0));
+                () -> questionService.list(null, null, null, null, null, null, null, 1, 0));
     }
 
     @Test
     void listReturnsPagedRowsWithSourceFields() {
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(1);
-        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("job-java-backend"))).thenReturn(1);
-        when(jdbcTemplate.queryForList(anyString(), eq("job-java-backend"), eq(10), eq(0))).thenReturn(List.of(Map.of(
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class),
+                eq("source-javaguide"), eq("job-java-backend"), eq("%泛型%"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(),
+                eq("source-javaguide"), eq("job-java-backend"), eq("%泛型%"), eq(10), eq(0))).thenReturn(List.of(Map.of(
                 "question_id", "jg-q-001",
                 "source_name", "JavaGuide",
                 "source_license", "Apache-2.0"
         )));
 
-        Map<String, Object> result = questionService.list(null, "job-java-backend", null, null, null, 1, 10);
+        Map<String, Object> result = questionService.list(
+                null, "source-javaguide", "job-java-backend", null, "泛型", null, null, 1, 10);
 
         assertEquals(1, result.get("total"));
         assertEquals(1, ((List<?>) result.get("records")).size());

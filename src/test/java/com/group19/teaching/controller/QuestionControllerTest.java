@@ -26,7 +26,7 @@ class QuestionControllerTest {
 
     @Test
     void listReturnsPagedQuestionData() throws Exception {
-        when(questionService.list(null, "job-java-backend", null, null, null, 1, 10)).thenReturn(Map.of(
+        when(questionService.list(null, "source-javaguide", "job-java-backend", null, "泛型", null, null, 1, 10)).thenReturn(Map.of(
                 "records", List.of(Map.of(
                         "question_id", "jg-q-001",
                         "job_id", "job-java-backend",
@@ -40,7 +40,9 @@ class QuestionControllerTest {
         mockMvc.perform(get("/api/questions")
                         .param("page_no", "1")
                         .param("page_size", "10")
-                        .param("job_id", "job-java-backend"))
+                        .param("source_id", "source-javaguide")
+                        .param("job_id", "job-java-backend")
+                        .param("keyword", "泛型"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.records[0].question_id").value("jg-q-001"))

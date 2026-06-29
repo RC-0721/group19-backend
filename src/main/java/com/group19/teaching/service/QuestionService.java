@@ -20,8 +20,10 @@ public class QuestionService {
 
     public Map<String, Object> list(
             String knowledgeId,
+            String sourceId,
             String jobId,
             String techId,
+            String keyword,
             String questionType,
             String difficulty,
             Integer pageNo,
@@ -30,7 +32,7 @@ public class QuestionService {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         List<Object> params = new ArrayList<>();
-        String where = buildWhere(knowledgeId, jobId, techId, questionType, difficulty, params);
+        String where = buildWhere(knowledgeId, sourceId, jobId, techId, keyword, questionType, difficulty, params);
         String countSql = "SELECT COUNT(DISTINCT q.question_id) " + baseFrom() + where;
         Integer total = params.isEmpty()
                 ? jdbcTemplate.queryForObject(countSql, Integer.class)
@@ -66,17 +68,24 @@ public class QuestionService {
 
     private String buildWhere(
             String knowledgeId,
+            String sourceId,
             String jobId,
             String techId,
+            String keyword,
             String questionType,
             String difficulty,
             List<Object> params) {
         StringBuilder where = new StringBuilder("WHERE q.audit_status = '已发布'\n");
         appendFilter(where, params, "kp.knowledge_id", knowledgeId);
+        appendFilter(where, params, "q.source_id", sourceId);
         appendFilter(where, params, "qjr.job_id", jobId);
         appendFilter(where, params, "qjr.tech_id", techId);
         appendFilter(where, params, "q.question_type", questionType);
         appendFilter(where, params, "q.difficulty", difficulty);
+        if (StringUtils.hasText(keyword)) {
+            where.append("AND q.stem LIKE ?\n");
+            params.add("%" + keyword + "%");
+        }
         return where.toString();
     }
 
