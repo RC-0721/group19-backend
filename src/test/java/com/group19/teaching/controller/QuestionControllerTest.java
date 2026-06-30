@@ -66,6 +66,16 @@ class QuestionControllerTest {
     }
 
     @Test
+    void listRejectsInvalidPageType() throws Exception {
+        mockMvc.perform(get("/api/questions")
+                        .header("token", "demo-token")
+                        .param("page_no", "x")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40001"));
+    }
+
+    @Test
     void createReturnsQuestion() throws Exception {
         User teacher = user("teacher001", "TEACHER");
         when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
@@ -81,6 +91,29 @@ class QuestionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.question_id").value("q-1"));
+    }
+
+    @Test
+    void createRejectsMalformedJson() throws Exception {
+        mockMvc.perform(post("/api/questions")
+                        .header("token", "teacher-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40001"));
+    }
+
+    @Test
+    void createRejectsUnauthenticatedUser() throws Exception {
+        when(authService.requireRole("bad-token", "TEACHER", "EDU_ADMIN"))
+                .thenThrow(new BusinessException(ErrorCode.AUTH_FAILED));
+
+        mockMvc.perform(post("/api/questions")
+                        .header("token", "bad-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40101"));
     }
 
     @Test

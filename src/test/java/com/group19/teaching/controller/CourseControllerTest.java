@@ -55,6 +55,14 @@ class CourseControllerTest {
                 .andExpect(jsonPath("$.data.questions[0].question_id").value("jg-q-001"));
     }
 
+    @Test
+    void detailRejectsMissingCourseClassId() throws Exception {
+        mockMvc.perform(get("/api/courses/course-java-001")
+                        .header("token", "demo-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40001"));
+    }
+
     private static User user() {
         User user = new User();
         user.setAccount("student001");
