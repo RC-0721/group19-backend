@@ -107,6 +107,50 @@ public class HomeworkService {
         return Map.of("review_id", reviewId, "teacher_score", teacherScore, "review_time", reviewTime);
     }
 
+    public Map<String, Object> listSubmits(
+            String homeworkId,
+            String submitStatus,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (!StringUtils.hasText(homeworkId) || pageNo == null || pageNo < 1
+                || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        requireTeacherHomework(homeworkId, actor.getAccount());
+
+        List<Object> params = new java.util.ArrayList<>();
+        params.add(homeworkId);
+        String where = "WHERE hs.homework_id = ?\n";
+        if (StringUtils.hasText(submitStatus)) {
+            where += "AND hs.submit_status = ?\n";
+            params.add(submitStatus);
+        }
+        Integer total = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM homework_submit hs " + where,
+                Integer.class,
+                params.toArray());
+        List<Object> pageParams = new java.util.ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT hs.submit_id, hs.homework_id, hs.student_id, hs.submit_content, hs.attachment_path,
+                       hs.submit_status, hs.submit_time, hr.review_id, hr.ai_score, hr.teacher_score,
+                       hr.ai_comment, hr.teacher_comment, hr.review_time
+                FROM homework_submit hs
+                LEFT JOIN homework_review hr ON hs.submit_id = hr.submit_id
+                """ + where + """
+                ORDER BY hs.submit_time DESC, hs.submit_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of(
+                "records", records,
+                "total", total == null ? 0 : total,
+                "page_no", pageNo,
+                "page_size", pageSize
+        );
+    }
+
     private Map<String, Object> requireOpenHomework(String homeworkId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
                 SELECT homework_id, status, deadline
@@ -136,6 +180,19 @@ public class HomeworkService {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
         return stringValue(rows.get(0).get("course_id"));
+    }
+
+    private void requireTeacherHomework(String homeworkId, String teacherId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT h.homework_id
+                FROM homework h
+                JOIN course_class cc ON h.course_class_id = cc.course_class_id
+                WHERE h.homework_id = ? AND cc.teacher_id = ?
+                LIMIT 1
+                """, homeworkId, teacherId);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
     }
 
     private LocalDateTime parseDateTime(Object value) {

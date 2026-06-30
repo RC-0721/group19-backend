@@ -115,6 +115,44 @@ class HomeworkServiceTest {
         assertEquals(ErrorCode.STATE_NOT_ALLOWED, exception.errorCode());
     }
 
+    @Test
+    void listSubmitsReturnsPagedRows() {
+        when(jdbcTemplate.queryForList(anyString(), eq("hw-1"), eq("teacher001")))
+                .thenReturn(List.of(Map.of("homework_id", "hw-1")));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("hw-1"), eq("待批改")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("hw-1"), eq("待批改"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "submit_id", "submit-1",
+                        "review_id", "review-1",
+                        "submit_status", "待批改"
+                )));
+
+        Map<String, Object> result = homeworkService.listSubmits(
+                "hw-1", "待批改", 1, 10, user("teacher001", "TEACHER"));
+
+        assertEquals(1, result.get("total"));
+        assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
+    void listSubmitsRejectsOtherTeacher() {
+        when(jdbcTemplate.queryForList(anyString(), eq("hw-1"), eq("teacher002"))).thenReturn(List.of());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> homeworkService.listSubmits("hw-1", null, 1, 10, user("teacher002", "TEACHER")));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
+    }
+
+    @Test
+    void listSubmitsRejectsInvalidPage() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> homeworkService.listSubmits("hw-1", null, 0, 10, user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);

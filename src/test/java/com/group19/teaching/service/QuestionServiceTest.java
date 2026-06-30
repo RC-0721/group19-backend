@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.group19.teaching.common.BusinessException;
+import com.group19.teaching.common.ErrorCode;
+import com.group19.teaching.domain.entity.User;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -41,5 +43,62 @@ class QuestionServiceTest {
 
         assertEquals(1, result.get("total"));
         assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
+    void createQuestion() {
+        Map<String, Object> result = questionService.create(Map.of(
+                "question_type", "单选题",
+                "stem", "Java 是什么？",
+                "difficulty", "简单",
+                "answer", "A",
+                "answer_analysis", "Java 是编程语言",
+                "knowledge_id", "kp-001",
+                "job_id", "job-java-backend",
+                "tech_id", "tech-001",
+                "audit_status", "待审核",
+                "options", List.of(Map.of(
+                        "option_label", "A",
+                        "option_content", "编程语言",
+                        "is_correct", true
+                ))
+        ), user("teacher001", "TEACHER"));
+
+        assertEquals("待审核", result.get("audit_status"));
+    }
+
+    @Test
+    void auditQuestion() {
+        when(jdbcTemplate.update(anyString(), eq("已发布"), eq("q-1"))).thenReturn(1);
+
+        Map<String, Object> result = questionService.audit("q-1", "已发布", user("admin001", "EDU_ADMIN"));
+
+        assertEquals("q-1", result.get("question_id"));
+        assertEquals("已发布", result.get("audit_status"));
+    }
+
+    @Test
+    void auditRejectsInvalidStatus() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> questionService.audit("q-1", "通过", user("admin001", "EDU_ADMIN")));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void auditRejectsMissingQuestion() {
+        when(jdbcTemplate.update(anyString(), eq("已发布"), eq("missing"))).thenReturn(0);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> questionService.audit("missing", "已发布", user("admin001", "EDU_ADMIN")));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
+    }
+
+    private static User user(String account, String role) {
+        User user = new User();
+        user.setAccount(account);
+        user.setRole(role);
+        return user;
     }
 }

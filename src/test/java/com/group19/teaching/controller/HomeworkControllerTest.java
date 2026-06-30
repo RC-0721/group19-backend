@@ -1,6 +1,7 @@
 package com.group19.teaching.controller;
 
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,6 +13,7 @@ import com.group19.teaching.domain.entity.User;
 import com.group19.teaching.service.AuthService;
 import com.group19.teaching.service.HomeworkService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -90,6 +92,32 @@ class HomeworkControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.teacher_score").value(88.0));
+    }
+
+    @Test
+    void listSubmitsReturnsQueue() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "TEACHER")).thenReturn(teacher);
+        when(homeworkService.listSubmits("hw-1", "待批改", 1, 10, teacher)).thenReturn(Map.of(
+                "records", List.of(Map.of(
+                        "submit_id", "submit-1",
+                        "review_id", "review-1",
+                        "submit_status", "待批改"
+                )),
+                "total", 1,
+                "page_no", 1,
+                "page_size", 10
+        ));
+
+        mockMvc.perform(get("/api/homeworks/hw-1/submits")
+                        .header("token", "teacher-token")
+                        .param("submit_status", "待批改")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].review_id").value("review-1"))
+                .andExpect(jsonPath("$.data.total").value(1));
     }
 
     @Test
