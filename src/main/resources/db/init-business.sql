@@ -172,9 +172,84 @@ CREATE TABLE IF NOT EXISTS homework_review (
 CREATE TABLE IF NOT EXISTS project_task (
   project_task_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(64),
   title VARCHAR(200) NOT NULL,
+  task_goal TEXT,
+  tech_requirement TEXT,
+  deliverable TEXT,
   status VARCHAR(20) NOT NULL DEFAULT '已发布',
   INDEX idx_project_task_course (course_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'job_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN job_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'task_goal');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN task_goal TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'tech_requirement');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN tech_requirement TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'deliverable');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN deliverable TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE project_task SET job_id = 'job-java-backend' WHERE job_id IS NULL;
+UPDATE project_task SET task_goal = title WHERE task_goal IS NULL;
+UPDATE project_task SET tech_requirement = '使用 Spring Boot 完成后端接口闭环' WHERE tech_requirement IS NULL;
+UPDATE project_task SET deliverable = '接口代码、说明文档和验证结果' WHERE deliverable IS NULL;
+
+CREATE TABLE IF NOT EXISTS enterprise_project_standard (
+  standard_id VARCHAR(64) PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  evaluation_dimension VARCHAR(100) NOT NULL,
+  score_level VARCHAR(50) NOT NULL,
+  evidence_requirement TEXT NOT NULL,
+  INDEX idx_project_standard_job (job_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rubric_dimension (
+  dimension_id VARCHAR(64) PRIMARY KEY,
+  standard_id VARCHAR(64) NOT NULL,
+  dimension_name VARCHAR(100) NOT NULL,
+  weight FLOAT NOT NULL,
+  level_rule TEXT NOT NULL,
+  INDEX idx_rubric_standard (standard_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS project_submission (
+  submission_id VARCHAR(64) PRIMARY KEY,
+  project_task_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  artifact_path VARCHAR(500) NOT NULL,
+  description TEXT NOT NULL,
+  submit_status VARCHAR(20) NOT NULL DEFAULT '待评价',
+  submit_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_project_submission_task (project_task_id),
+  INDEX idx_project_submission_student (student_id),
+  INDEX idx_project_submission_status (submit_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS project_evaluation (
+  evaluation_id VARCHAR(64) PRIMARY KEY,
+  submission_id VARCHAR(64) NOT NULL,
+  rubric_id VARCHAR(64),
+  ai_evaluation TEXT,
+  teacher_score FLOAT,
+  teacher_comment TEXT,
+  confirmed_time DATETIME,
+  INDEX idx_project_evaluation_submit (submission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ability_evidence (
+  evidence_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  source_type VARCHAR(50) NOT NULL,
+  source_id VARCHAR(64) NOT NULL,
+  knowledge_id VARCHAR(64),
+  skill_id VARCHAR(64),
+  score FLOAT NOT NULL,
+  UNIQUE KEY uk_ability_evidence_source (source_type, source_id),
+  INDEX idx_ability_evidence_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS knowledge_point (
@@ -321,9 +396,9 @@ INSERT INTO homework (homework_id, course_id, course_class_id, chapter_id, title
   ('hw-java-001', 'course-java-001', 'class-java-001', 'chapter-java-001', 'Java 基础简答题练习', '围绕课程资料完成简答题作业。', '内容完整、表达清晰，教师确认分为最终分。', '2099-12-31 23:59:59', '已发布')
 ON DUPLICATE KEY UPDATE title=VALUES(title), course_class_id=VALUES(course_class_id), submit_requirement=VALUES(submit_requirement), scoring_standard=VALUES(scoring_standard), deadline=VALUES(deadline), status=VALUES(status);
 
-INSERT INTO project_task (project_task_id, course_id, title, status) VALUES
-  ('project-java-001', 'course-java-001', 'Spring Boot 课程问答 API 最小项目', '已发布')
-ON DUPLICATE KEY UPDATE title=VALUES(title), status=VALUES(status);
+INSERT INTO project_task (project_task_id, course_id, job_id, title, task_goal, tech_requirement, deliverable, status) VALUES
+  ('project-java-001', 'course-java-001', 'job-java-backend', 'Spring Boot 课程问答 API 最小项目', '完成课程问答 API 最小闭环', '使用 Spring Boot 实现接口、鉴权和数据落库', '接口代码、说明文档和验证结果', '已发布')
+ON DUPLICATE KEY UPDATE job_id=VALUES(job_id), title=VALUES(title), task_goal=VALUES(task_goal), tech_requirement=VALUES(tech_requirement), deliverable=VALUES(deliverable), status=VALUES(status);
 
 INSERT INTO knowledge_point (knowledge_id, course_id, chapter_id, name, level, source, audit_status) VALUES
   ('kp-001', 'course-java-001', 'chapter-java-001', 'Java 基础', '基础', 'JavaGuide', '已发布'),
@@ -344,6 +419,14 @@ ON DUPLICATE KEY UPDATE chunk_text=VALUES(chunk_text), knowledge_id=VALUES(knowl
 INSERT INTO job_direction (job_id, job_name, job_description, difficulty_level, status) VALUES
   ('job-java-backend', 'Java 后端开发工程师', '面向 Java Web、数据库、缓存、网络和后端框架的就业方向。', '初中级', '启用')
 ON DUPLICATE KEY UPDATE job_name=VALUES(job_name), job_description=VALUES(job_description), difficulty_level=VALUES(difficulty_level), status=VALUES(status);
+
+INSERT INTO enterprise_project_standard (standard_id, job_id, evaluation_dimension, score_level, evidence_requirement) VALUES
+  ('standard-java-project-001', 'job-java-backend', '后端项目交付质量', '优秀/合格/需改进', '提交可运行接口、测试结果和关键说明')
+ON DUPLICATE KEY UPDATE job_id=VALUES(job_id), evaluation_dimension=VALUES(evaluation_dimension), score_level=VALUES(score_level), evidence_requirement=VALUES(evidence_requirement);
+
+INSERT INTO rubric_dimension (dimension_id, standard_id, dimension_name, weight, level_rule) VALUES
+  ('rubric-java-project-001', 'standard-java-project-001', '接口闭环完整度', 1.0, '按接口可用性、权限校验、状态流转和验证结果综合评价')
+ON DUPLICATE KEY UPDATE standard_id=VALUES(standard_id), dimension_name=VALUES(dimension_name), weight=VALUES(weight), level_rule=VALUES(level_rule);
 
 INSERT INTO tech_stack (tech_id, tech_name, category, level, description) VALUES
   ('tech-001', 'Java', '后端开发', '基础', 'Java 相关知识与面试题'),
