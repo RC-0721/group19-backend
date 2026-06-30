@@ -252,6 +252,79 @@ CREATE TABLE IF NOT EXISTS ability_evidence (
   INDEX idx_ability_evidence_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS ai_session (
+  session_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(64) NOT NULL,
+  scene VARCHAR(100) NOT NULL,
+  model VARCHAR(100),
+  prompt_version VARCHAR(50),
+  status VARCHAR(20) NOT NULL DEFAULT '已创建',
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ai_session_student (student_id),
+  INDEX idx_ai_session_job (job_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'job_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN job_id VARCHAR(64) NOT NULL DEFAULT ''job-java-backend''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS ai_message (
+  message_id VARCHAR(64) PRIMARY KEY,
+  session_id VARCHAR(64) NOT NULL,
+  sender_type VARCHAR(20) NOT NULL,
+  message_content TEXT NOT NULL,
+  reference_chunk TEXT,
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ai_message_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_interview_report (
+  report_id VARCHAR(64) PRIMARY KEY,
+  session_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(64) NOT NULL,
+  score FLOAT NOT NULL,
+  strength TEXT,
+  weakness TEXT,
+  suggestion TEXT,
+  UNIQUE KEY uk_ai_report_session (session_id),
+  INDEX idx_ai_report_job (job_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ability_profile (
+  profile_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(64) NOT NULL,
+  profile_status VARCHAR(20) NOT NULL DEFAULT '数据不足',
+  knowledge_mastery TEXT,
+  skill_mastery TEXT,
+  updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_ability_profile_student_job (student_id, job_id),
+  INDEX idx_ability_profile_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS learning_recommendation (
+  recommend_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  profile_id VARCHAR(64) NOT NULL,
+  target_weakness TEXT,
+  recommend_content TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT '待完成',
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_recommend_profile (profile_id),
+  INDEX idx_recommend_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_call_log (
+  log_id VARCHAR(64) PRIMARY KEY,
+  scene VARCHAR(100) NOT NULL,
+  model VARCHAR(100),
+  prompt_version VARCHAR(50),
+  input_summary TEXT,
+  output_summary TEXT,
+  call_status VARCHAR(20) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS knowledge_point (
   knowledge_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
@@ -291,6 +364,18 @@ CREATE TABLE IF NOT EXISTS tech_stack (
   category VARCHAR(100),
   level VARCHAR(50),
   description TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS job_skill_standard (
+  skill_id VARCHAR(64) PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  tech_id VARCHAR(64) NOT NULL,
+  skill_name VARCHAR(100) NOT NULL,
+  ability_level VARCHAR(50) NOT NULL,
+  evidence_requirement TEXT NOT NULL,
+  UNIQUE KEY uk_job_skill (job_id, tech_id, skill_name),
+  INDEX idx_job_skill_job (job_id),
+  INDEX idx_job_skill_tech (tech_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS question (
@@ -436,6 +521,14 @@ INSERT INTO tech_stack (tech_id, tech_name, category, level, description) VALUES
   ('tech-005', 'Redis', '后端开发', '基础', 'Redis 相关知识与面试题'),
   ('tech-006', 'HTTP', '后端开发', '进阶', 'HTTP 相关知识与面试题')
 ON DUPLICATE KEY UPDATE tech_name=VALUES(tech_name), category=VALUES(category), level=VALUES(level), description=VALUES(description);
+
+INSERT INTO job_skill_standard (skill_id, job_id, tech_id, skill_name, ability_level, evidence_requirement) VALUES
+  ('skill-java-001', 'job-java-backend', 'tech-001', 'Java 语言基础', '基础', '能说明 Java 基础语法、面向对象和 JVM 基础概念，并完成课程题目练习'),
+  ('skill-java-002', 'job-java-backend', 'tech-003', '并发编程基础', '进阶', '能解释线程状态、锁和并发容器，并结合项目说明使用场景'),
+  ('skill-java-003', 'job-java-backend', 'tech-004', '数据库设计与 SQL', '基础', '能完成基础表结构设计、SQL 查询和事务场景说明'),
+  ('skill-java-004', 'job-java-backend', 'tech-005', '缓存与性能优化', '进阶', '能说明 Redis 常见数据结构、缓存使用场景和一致性风险'),
+  ('skill-java-005', 'job-java-backend', 'tech-006', 'HTTP 与接口设计', '基础', '能设计 REST 接口，说明鉴权、状态码和联调验证结果')
+ON DUPLICATE KEY UPDATE ability_level=VALUES(ability_level), evidence_requirement=VALUES(evidence_requirement);
 
 INSERT INTO question (question_id, source_id, source_path, source_url, question_type, stem, difficulty, answer, answer_analysis, audit_status) VALUES
   ('jg-q-001', 'source-javaguide', 'docs/java/basis/java-basic-questions-01.md', 'https://github.com/Snailclimb/JavaGuide/blob/main/docs/java/basis/java-basic-questions-01.md', '简答题', 'Java 语言有哪些特点？', '中等', '1. 简单易学（语法简单，上手容易）； 2. 面向对象（封装，继承，多态）； 3. 平台无关性（Java 虚拟机实现平台无关性）； 4. 支持多线程（C++ 语言没有内置的多线程机制，因此必须调用操作系统的多线程功能来进行多线程程序设计，而 Java 语言却提供了多线程支持）； 5. 可靠性（具备异常处理和自动内存管理机制）； 6. 安全性（Java 语言本身的设计就提供了多重安全防护机制如访问权限修饰符、限制程序直接访问操作系统资源）； 7. 高效性（通过 Just In Time 编译器等技术的优化，Java 语言的运行效率还是非常不错的）； 8. 支持网络编程并且很方便； 9. 编译与解释并存； 10. …… > **🐛 修正（参见：[issue#544](https://github.com/Snailclimb/JavaGuide/issues/544)）**：C++11 开始（2011 年的时候），C++ 就引入了多线程库，在 Windows、Linux、macOS 都可以使用 `std::thread` 和 `std::async` 来创建线程。参考链接： 🌈 拓展一', '1. 简单易学（语法简单，上手容易）； 2. 面向对象（封装，继承，多态）； 3. 平台无关性（Java 虚拟机实现平台无关性）； 4. 支持多线程（C++ 语言没有内置的多线程机制，因此必须调用操作系统的多线程功能来进行多线程程序设计，而 Java 语言却提供了多线程支持）； 5. 可靠性（具备异常处理和自动内存管理机制）； 6. 安全性（Java 语言本身的设计就提供了多重安全防护机制如访问权限修饰符、限制程序直接访问操作系统资源）； 7. 高效性（通过 Just In Time 编译器等技术的优化，Java 语言的运行效率还是非常不错的）； 8. 支持网络编程并且很方便； 9. 编译与解释并存； 10. …… > **🐛 修正（参见：[issue#544](https://github.com/Snailclimb/JavaGuide/issues/544)）**：C++11 开始（2011 年的时候），C++ 就引入了多线程库，在 Windows、Linux、macOS 都可以使用 `std::thread` 和 `std::async` 来创建线程。参考链接： 🌈 拓展一', '已发布'),
