@@ -30,6 +30,26 @@ public class KnowledgeService {
         this.uploadDir = Path.of(uploadDir);
     }
 
+    public Map<String, Object> uploadFile(MultipartFile file, User actor) {
+        if (actor == null || file == null || file.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String fileName = cleanFileName(file.getOriginalFilename());
+        String fileType = fileType(fileName);
+        if (!List.of("txt", "md", "pdf", "doc", "docx", "zip").contains(fileType)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+
+        Path target = uploadDir.resolve("file-" + UUID.randomUUID() + "." + fileType).normalize();
+        try {
+            Files.createDirectories(uploadDir);
+            file.transferTo(target);
+        } catch (IOException exception) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        return Map.of("file_name", fileName, "file_type", fileType, "storage_path", target.toString());
+    }
+
     @Transactional
     public Map<String, Object> uploadMaterial(String courseId, String chapterId, MultipartFile file, User actor) {
         if (!StringUtils.hasText(courseId) || !StringUtils.hasText(chapterId) || file == null || file.isEmpty()) {
@@ -194,7 +214,11 @@ public class KnowledgeService {
     }
 
     private String cleanFileName(String filename) {
-        String value = StringUtils.hasText(filename) ? Path.of(filename).getFileName().toString() : "";
+        String value = StringUtils.hasText(filename) ? filename.trim() : "";
+        if (value.contains("/") || value.contains("\\") || ".".equals(value) || "..".equals(value)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        value = Path.of(value).getFileName().toString();
         if (!StringUtils.hasText(value)) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }

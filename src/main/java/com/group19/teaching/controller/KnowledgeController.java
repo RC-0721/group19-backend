@@ -36,6 +36,14 @@ public class KnowledgeController {
         return ApiResponse.success(knowledgeService.uploadMaterial(courseId, chapterId, file, actor));
     }
 
+    @PostMapping("/api/files")
+    public ApiResponse<Map<String, Object>> uploadFile(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestPart("file") MultipartFile file) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(knowledgeService.uploadFile(file, actor));
+    }
+
     @GetMapping("/api/knowledge/chunks")
     public ApiResponse<Map<String, Object>> chunks(
             @RequestHeader(value = "token", required = false) String token,

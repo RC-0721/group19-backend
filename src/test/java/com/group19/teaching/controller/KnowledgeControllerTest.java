@@ -2,6 +2,7 @@ package com.group19.teaching.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -9,6 +10,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.group19.teaching.common.BusinessException;
+import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import com.group19.teaching.service.AuthService;
 import com.group19.teaching.service.KnowledgeService;
@@ -54,6 +57,37 @@ class KnowledgeControllerTest {
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.material_id").value("material-1"))
                 .andExpect(jsonPath("$.data.parse_task_id").value("parse-1"));
+    }
+
+    @Test
+    void uploadFileReturnsMetadata() throws Exception {
+        User student = user("student001", "STUDENT");
+        MockMultipartFile file = new MockMultipartFile("file", "homework.zip", "application/zip", "zip".getBytes());
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(knowledgeService.uploadFile(any(), eq(student))).thenReturn(Map.of(
+                "file_name", "homework.zip",
+                "file_type", "zip",
+                "storage_path", "target/test-uploads/file-1.zip"
+        ));
+
+        mockMvc.perform(multipart("/api/files")
+                        .file(file)
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.file_name").value("homework.zip"))
+                .andExpect(jsonPath("$.data.file_type").value("zip"));
+    }
+
+    @Test
+    void uploadFileRequiresLogin() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "homework.zip", "application/zip", "zip".getBytes());
+        doThrow(new BusinessException(ErrorCode.AUTH_FAILED))
+                .when(authService).requireRole(null, "STUDENT", "TEACHER", "EDU_ADMIN");
+
+        mockMvc.perform(multipart("/api/files").file(file))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40101"));
     }
 
     @Test

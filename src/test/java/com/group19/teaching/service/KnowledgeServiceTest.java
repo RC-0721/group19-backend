@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 
 class KnowledgeServiceTest {
 
@@ -52,6 +53,26 @@ class KnowledgeServiceTest {
                 () -> knowledgeService.auditChunk("chunk-1", null, user("teacher001", "TEACHER")));
 
         assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void uploadFileReturnsMetadata() {
+        MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "pdf".getBytes());
+
+        Map<String, Object> result = knowledgeService.uploadFile(file, user("student001", "STUDENT"));
+
+        assertEquals("report.pdf", result.get("file_name"));
+        assertEquals("pdf", result.get("file_type"));
+    }
+
+    @Test
+    void uploadFileRejectsDangerousName() {
+        MockMultipartFile file = new MockMultipartFile("file", "../report.pdf", "application/pdf", "pdf".getBytes());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> knowledgeService.uploadFile(file, user("student001", "STUDENT")));
+
+        assertEquals(ErrorCode.FILE_INVALID, exception.errorCode());
     }
 
     private static User user(String account, String role) {
