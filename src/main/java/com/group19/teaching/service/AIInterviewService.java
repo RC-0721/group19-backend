@@ -188,9 +188,10 @@ public class AIInterviewService {
     private void requireTeacherStudent(String studentId, String teacherId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM course_class
-                WHERE teacher_id = ? AND ? = 'student001'
-                """, Integer.class, teacherId, studentId);
+                FROM student_profile sp
+                JOIN course_class cc ON sp.class_id = cc.class_id
+                WHERE sp.student_id = ? AND cc.teacher_id = ?
+                """, Integer.class, studentId, teacherId);
         if (count == null || count == 0) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }

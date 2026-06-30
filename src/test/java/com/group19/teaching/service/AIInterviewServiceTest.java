@@ -97,11 +97,30 @@ class AIInterviewServiceTest {
                 "suggestion", "建议",
                 "student_id", "student001"
         )));
-        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("teacher001"), eq("student001"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student001"), eq("teacher001"))).thenReturn(1);
 
         Map<String, Object> result = interviewService.report("session-1", user("teacher001", "TEACHER"));
 
         assertEquals("report-1", result.get("report_id"));
+    }
+
+    @Test
+    void reportRejectsTeacherOutOfStudentProfileScope() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(Map.of(
+                "report_id", "report-1",
+                "job_id", "job-java-backend",
+                "score", 82.0,
+                "strength", "优势",
+                "weakness", "短板",
+                "suggestion", "建议",
+                "student_id", "student002"
+        )));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student002"), eq("teacher001"))).thenReturn(0);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interviewService.report("session-1", user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
     }
 
     private static User user(String account, String role) {

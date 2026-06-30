@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS course (
   status VARCHAR(20) NOT NULL DEFAULT '已发布'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `class` (
+  class_id VARCHAR(64) PRIMARY KEY,
+  major_id VARCHAR(64),
+  class_name VARCHAR(100) NOT NULL,
+  grade VARCHAR(20),
+  counselor_id VARCHAR(64),
+  status VARCHAR(20) NOT NULL DEFAULT '启用'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS course_class (
   course_class_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
@@ -30,7 +39,20 @@ CREATE TABLE IF NOT EXISTS course_class (
   teacher_id VARCHAR(64),
   semester VARCHAR(50),
   status VARCHAR(20) NOT NULL DEFAULT '开课中',
-  INDEX idx_course_class_course (course_id)
+  INDEX idx_course_class_course (course_id),
+  INDEX idx_course_class_class_teacher (class_id, teacher_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS student_profile (
+  student_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  student_no VARCHAR(64),
+  major_id VARCHAR(64),
+  class_id VARCHAR(64),
+  target_job_id VARCHAR(64),
+  enrollment_year VARCHAR(20),
+  INDEX idx_student_profile_class (class_id),
+  INDEX idx_student_profile_job (target_job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS chapter (
@@ -453,9 +475,17 @@ INSERT INTO course (course_id, course_name, course_type, course_goal, standard_i
   ('course-java-001', 'Java 后端就业能力课程', '就业实训', '面向计软本科生就业准备，覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识。', 'standard-java-backend', '已发布')
 ON DUPLICATE KEY UPDATE course_name=VALUES(course_name), course_type=VALUES(course_type), course_goal=VALUES(course_goal), status=VALUES(status);
 
+INSERT INTO `class` (class_id, major_id, class_name, grade, counselor_id, status) VALUES
+  ('class-cs-2026', 'major-cs', '计软 2026 班', '2026', NULL, '启用')
+ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), class_name=VALUES(class_name), grade=VALUES(grade), status=VALUES(status);
+
 INSERT INTO course_class (course_class_id, course_id, class_id, teacher_id, semester, status) VALUES
   ('class-java-001', 'course-java-001', 'class-cs-2026', 'teacher001', '2026 春季', '开课中')
-ON DUPLICATE KEY UPDATE semester=VALUES(semester), status=VALUES(status);
+ON DUPLICATE KEY UPDATE course_id=VALUES(course_id), class_id=VALUES(class_id), teacher_id=VALUES(teacher_id), semester=VALUES(semester), status=VALUES(status);
+
+INSERT INTO student_profile (student_id, user_id, student_no, major_id, class_id, target_job_id, enrollment_year) VALUES
+  ('student001', 'student001', '2026001', 'major-cs', 'class-cs-2026', 'job-java-backend', '2026')
+ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), student_no=VALUES(student_no), major_id=VALUES(major_id), class_id=VALUES(class_id), target_job_id=VALUES(target_job_id), enrollment_year=VALUES(enrollment_year);
 
 INSERT INTO chapter (chapter_id, course_id, parent_id, chapter_name, sort_order) VALUES
   ('chapter-java-001', 'course-java-001', NULL, 'Java 基础与面向对象', '1'),

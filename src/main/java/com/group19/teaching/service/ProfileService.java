@@ -5,6 +5,7 @@ import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,6 +21,47 @@ public class ProfileService {
 
     public ProfileService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public Map<String, Object> classAnalysis(String classId, String courseId, String jobId, User actor) {
+        if (!StringUtils.hasText(classId) || blankParam(courseId) || blankParam(jobId)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        requireClass(classId);
+        if (StringUtils.hasText(jobId)) {
+            requireJob(jobId);
+        }
+        requireTeacherClass(classId, courseId, actor.getAccount());
+
+        List<Map<String, Object>> evidences = classEvidences(classId, courseId, jobId);
+        double avg = evidences.stream()
+                .map(row -> row.get("score"))
+                .filter(Number.class::isInstance)
+                .map(Number.class::cast)
+                .mapToDouble(Number::doubleValue)
+                .average()
+                .orElse(0);
+        long knowledgeCount = evidences.stream()
+                .map(row -> stringValue(row.get("knowledge_id")))
+                .filter(StringUtils::hasText)
+                .count();
+        long skillCount = evidences.stream()
+                .map(row -> stringValue(row.get("skill_id")))
+                .filter(StringUtils::hasText)
+                .distinct()
+                .count();
+        String knowledgeMastery = knowledgeCount == 0
+                ? "数据不足"
+                : "班级知识平均掌握度 " + Math.round(avg) + "，知识证据 " + knowledgeCount + " 条";
+        String skillMastery = skillCount == 0
+                ? "数据不足"
+                : "岗位技能平均掌握度 " + Math.round(avg) + "，覆盖技能 " + skillCount + " 项";
+        return Map.of(
+                "knowledge_mastery", knowledgeMastery,
+                "skill_mastery", skillMastery,
+                "evidences", evidences,
+                "recommendations", recommendations(evidences, knowledgeCount, skillCount)
+        );
     }
 
     @Transactional
@@ -96,6 +138,12 @@ public class ProfileService {
         }
     }
 
+    private void requireClass(String classId) {
+        if (jdbcTemplate.queryForList("SELECT class_id FROM class WHERE class_id = ? LIMIT 1", classId).isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+    }
+
     private String profileId(String studentId, String jobId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
                 SELECT profile_id
@@ -124,12 +172,73 @@ public class ProfileService {
     private void requireTeacherStudent(String studentId, String teacherId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM course_class
-                WHERE teacher_id = ? AND ? = 'student001'
-                """, Integer.class, teacherId, studentId);
+                FROM student_profile sp
+                JOIN course_class cc ON sp.class_id = cc.class_id
+                WHERE sp.student_id = ? AND cc.teacher_id = ?
+                """, Integer.class, studentId, teacherId);
         if (count == null || count == 0) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
+    }
+
+    private void requireTeacherClass(String classId, String courseId, String teacherId) {
+        Integer count;
+        if (StringUtils.hasText(courseId)) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE class_id = ? AND course_id = ? AND teacher_id = ?
+                    """, Integer.class, classId, courseId, teacherId);
+        } else {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE class_id = ? AND teacher_id = ?
+                    """, Integer.class, classId, teacherId);
+        }
+        if (count == null || count == 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private List<Map<String, Object>> classEvidences(String classId, String courseId, String jobId) {
+        List<Object> params = new ArrayList<>();
+        params.add(classId);
+        String sql = """
+                SELECT ae.student_id, ae.source_type, ae.source_id, ae.knowledge_id, ae.skill_id, ae.score
+                FROM ability_evidence ae
+                JOIN student_profile sp ON ae.student_id = sp.student_id
+                LEFT JOIN knowledge_point kp ON ae.knowledge_id = kp.knowledge_id
+                LEFT JOIN job_skill_standard jss ON ae.skill_id = jss.skill_id
+                WHERE sp.class_id = ?
+                """;
+        if (StringUtils.hasText(courseId)) {
+            sql += " AND (ae.knowledge_id IS NULL OR kp.course_id = ?)";
+            params.add(courseId);
+        }
+        if (StringUtils.hasText(jobId)) {
+            sql += " AND jss.job_id = ?";
+            params.add(jobId);
+        }
+        sql += " ORDER BY ae.student_id, ae.evidence_id";
+        return jdbcTemplate.queryForList(sql, params.toArray());
+    }
+
+    private List<Map<String, Object>> recommendations(List<Map<String, Object>> evidences, long knowledgeCount, long skillCount) {
+        if (evidences.isEmpty()) {
+            return List.of(Map.of("recommend_content", "班级能力证据不足，先组织一次课程练习或项目评价。"));
+        }
+        if (knowledgeCount == 0) {
+            return List.of(Map.of("recommend_content", "优先补充课程知识点练习，形成可追踪的知识掌握证据。"));
+        }
+        if (skillCount == 0) {
+            return List.of(Map.of("recommend_content", "优先安排岗位技能任务，把课程表现映射到岗位技能标准。"));
+        }
+        return List.of(Map.of("recommend_content", "围绕低分证据集中讲评，再安排岗位相关练习巩固。"));
+    }
+
+    private boolean blankParam(String value) {
+        return value != null && !StringUtils.hasText(value);
     }
 
     private String stringValue(Object value) {

@@ -30,4 +30,14 @@ public class ProfileController {
         User actor = authService.requireRole(token, "STUDENT", "TEACHER");
         return ApiResponse.success(profileService.get(studentId, jobId, actor));
     }
+
+    @GetMapping("/api/profiles/classes/{classId}/analysis")
+    public ApiResponse<Map<String, Object>> classAnalysis(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String classId,
+            @RequestParam(value = "course_id", required = false) String courseId,
+            @RequestParam(value = "job_id", required = false) String jobId) {
+        User actor = authService.requireRole(token, "TEACHER");
+        return ApiResponse.success(profileService.classAnalysis(classId, courseId, jobId, actor));
+    }
 }
