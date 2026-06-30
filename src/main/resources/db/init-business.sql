@@ -55,6 +55,18 @@ CREATE TABLE IF NOT EXISTS student_profile (
   INDEX idx_student_profile_job (target_job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS operation_log (
+  log_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  role VARCHAR(32) NOT NULL,
+  module VARCHAR(64) NOT NULL,
+  operation_type VARCHAR(64) NOT NULL,
+  operation_result VARCHAR(32) NOT NULL,
+  operation_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_operation_log_user (user_id),
+  INDEX idx_operation_log_module_time (module, operation_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS chapter (
   chapter_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,

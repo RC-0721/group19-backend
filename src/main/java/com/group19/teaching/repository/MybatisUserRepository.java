@@ -21,4 +21,14 @@ public class MybatisUserRepository implements UserRepository {
                 .eq(User::getAccount, account)
                 .last("limit 1")));
     }
+
+    @Override
+    public Optional<User> findById(Long id) {
+        return Optional.ofNullable(userMapper.selectById(id));
+    }
+
+    @Override
+    public void updateUserState(User user) {
+        userMapper.updateById(user);
+    }
 }

@@ -109,6 +109,18 @@ class AuthServiceTest {
         public Optional<User> findByAccount(String account) {
             return Optional.ofNullable(new HashMap<>(users).get(account));
         }
+
+        @Override
+        public Optional<User> findById(Long id) {
+            return users.values().stream()
+                    .filter(user -> id.equals(user.getId()))
+                    .findFirst();
+        }
+
+        @Override
+        public void updateUserState(User user) {
+            throw new UnsupportedOperationException("not needed in auth tests");
+        }
     }
 }
 

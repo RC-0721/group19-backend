@@ -6,4 +6,8 @@ import java.util.Optional;
 public interface UserRepository {
 
     Optional<User> findByAccount(String account);
+
+    Optional<User> findById(Long id);
+
+    void updateUserState(User user);
 }

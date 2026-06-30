@@ -14,6 +14,7 @@ public class User {
     private String name;
     private String role;
     private String status;
+    private String permissionScope;
 
     public Long getId() {
         return id;
@@ -61,5 +62,13 @@ public class User {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getPermissionScope() {
+        return permissionScope;
+    }
+
+    public void setPermissionScope(String permissionScope) {
+        this.permissionScope = permissionScope;
     }
 }
