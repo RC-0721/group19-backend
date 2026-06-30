@@ -80,10 +80,18 @@ CREATE TABLE IF NOT EXISTS pre_task (
   INDEX idx_pre_task_material (material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS pre_task_id VARCHAR(64);
-ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS course_class_id VARCHAR(64);
-ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS material_id VARCHAR(64);
-ALTER TABLE pre_task ADD COLUMN IF NOT EXISTS deadline DATETIME;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pre_task' AND COLUMN_NAME = 'pre_task_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE pre_task ADD COLUMN pre_task_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pre_task' AND COLUMN_NAME = 'course_class_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE pre_task ADD COLUMN course_class_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pre_task' AND COLUMN_NAME = 'material_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE pre_task ADD COLUMN material_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pre_task' AND COLUMN_NAME = 'deadline');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE pre_task ADD COLUMN deadline DATETIME', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 UPDATE pre_task pt SET pre_task_id = task_id WHERE pre_task_id IS NULL;
 UPDATE pre_task pt
 JOIN course_class cc ON pt.course_id = cc.course_id
@@ -107,10 +115,58 @@ CREATE TABLE IF NOT EXISTS pre_task_submit (
 CREATE TABLE IF NOT EXISTS homework (
   homework_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
+  course_class_id VARCHAR(64),
   chapter_id VARCHAR(64),
   title VARCHAR(200) NOT NULL,
+  submit_requirement TEXT,
+  scoring_standard TEXT,
+  deadline DATETIME,
   status VARCHAR(20) NOT NULL DEFAULT '已发布',
-  INDEX idx_homework_course (course_id)
+  INDEX idx_homework_course (course_id),
+  INDEX idx_homework_class (course_class_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'homework' AND COLUMN_NAME = 'course_class_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE homework ADD COLUMN course_class_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'homework' AND COLUMN_NAME = 'submit_requirement');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE homework ADD COLUMN submit_requirement TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'homework' AND COLUMN_NAME = 'scoring_standard');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE homework ADD COLUMN scoring_standard TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'homework' AND COLUMN_NAME = 'deadline');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE homework ADD COLUMN deadline DATETIME', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE homework h
+JOIN course_class cc ON h.course_id = cc.course_id
+SET h.course_class_id = cc.course_class_id
+WHERE h.course_class_id IS NULL;
+UPDATE homework SET submit_requirement = '按要求提交作业内容' WHERE submit_requirement IS NULL;
+UPDATE homework SET scoring_standard = '教师确认分为最终分' WHERE scoring_standard IS NULL;
+UPDATE homework SET deadline = '2099-12-31 23:59:59' WHERE deadline IS NULL;
+
+CREATE TABLE IF NOT EXISTS homework_submit (
+  submit_id VARCHAR(64) PRIMARY KEY,
+  homework_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  submit_content TEXT NOT NULL,
+  attachment_path VARCHAR(500) NOT NULL,
+  submit_status VARCHAR(20) NOT NULL DEFAULT '待批改',
+  submit_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_homework_submit_homework (homework_id),
+  INDEX idx_homework_submit_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS homework_review (
+  review_id VARCHAR(64) PRIMARY KEY,
+  submit_id VARCHAR(64) NOT NULL,
+  ai_score FLOAT,
+  teacher_score FLOAT,
+  ai_comment TEXT,
+  teacher_comment TEXT,
+  review_time DATETIME,
+  INDEX idx_homework_review_submit (submit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS project_task (
@@ -261,9 +317,9 @@ INSERT INTO pre_task (pre_task_id, task_id, course_class_id, course_id, chapter_
   ('pre-java-001', 'pre-java-001', 'class-java-001', 'course-java-001', 'chapter-java-001', '阅读 Java 基础与面向对象知识点', 'material-jg-001', '2099-12-31 23:59:59', '课前任务', '已发布')
 ON DUPLICATE KEY UPDATE title=VALUES(title), material_id=VALUES(material_id), deadline=VALUES(deadline), task_type=VALUES(task_type), status=VALUES(status);
 
-INSERT INTO homework (homework_id, course_id, chapter_id, title, status) VALUES
-  ('hw-java-001', 'course-java-001', 'chapter-java-001', 'Java 基础简答题练习', '已发布')
-ON DUPLICATE KEY UPDATE title=VALUES(title), status=VALUES(status);
+INSERT INTO homework (homework_id, course_id, course_class_id, chapter_id, title, submit_requirement, scoring_standard, deadline, status) VALUES
+  ('hw-java-001', 'course-java-001', 'class-java-001', 'chapter-java-001', 'Java 基础简答题练习', '围绕课程资料完成简答题作业。', '内容完整、表达清晰，教师确认分为最终分。', '2099-12-31 23:59:59', '已发布')
+ON DUPLICATE KEY UPDATE title=VALUES(title), course_class_id=VALUES(course_class_id), submit_requirement=VALUES(submit_requirement), scoring_standard=VALUES(scoring_standard), deadline=VALUES(deadline), status=VALUES(status);
 
 INSERT INTO project_task (project_task_id, course_id, title, status) VALUES
   ('project-java-001', 'course-java-001', 'Spring Boot 课程问答 API 最小项目', '已发布')
