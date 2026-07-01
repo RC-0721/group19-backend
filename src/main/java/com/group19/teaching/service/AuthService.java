@@ -67,6 +67,12 @@ public class AuthService {
         return user;
     }
 
+    public void logout(String token) {
+        if (!StringUtils.hasText(token) || sessions.remove(normalizeToken(token)) == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED);
+        }
+    }
+
     private String normalizeToken(String token) {
         String value = token.trim();
         return value.regionMatches(true, 0, "Bearer ", 0, 7) ? value.substring(7).trim() : value;

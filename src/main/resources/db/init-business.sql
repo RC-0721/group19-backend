@@ -14,6 +14,32 @@ CREATE TABLE IF NOT EXISTS data_source (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS major (
+  major_id VARCHAR(64) PRIMARY KEY,
+  major_name VARCHAR(100) NOT NULL,
+  major_code VARCHAR(64) NOT NULL,
+  major_category VARCHAR(100),
+  training_program_id VARCHAR(64),
+  description TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT '启用',
+  UNIQUE KEY uk_major_code (major_code),
+  INDEX idx_major_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'major' AND COLUMN_NAME = 'major_code');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE major ADD COLUMN major_code VARCHAR(64) NOT NULL DEFAULT ''''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'major' AND COLUMN_NAME = 'description');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE major ADD COLUMN description TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'major' AND COLUMN_NAME = 'major_category');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE major ADD COLUMN major_category VARCHAR(100)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'major' AND COLUMN_NAME = 'training_program_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE major ADD COLUMN training_program_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE major SET major_code = major_id WHERE major_code IS NULL OR major_code = '';
+
 CREATE TABLE IF NOT EXISTS course (
   course_id VARCHAR(64) PRIMARY KEY,
   course_name VARCHAR(100) NOT NULL,
@@ -482,6 +508,10 @@ CREATE TABLE IF NOT EXISTS wrong_book (
 INSERT INTO data_source (source_id, source_name, source_type, source_url, license, usage_note) VALUES
   ('source-javaguide', 'JavaGuide', 'GitHub Repository', 'https://github.com/Snailclimb/JavaGuide', 'Apache-2.0', 'Keep source URL and license when displaying imported question records.')
 ON DUPLICATE KEY UPDATE source_name=VALUES(source_name), source_type=VALUES(source_type), source_url=VALUES(source_url), license=VALUES(license), usage_note=VALUES(usage_note);
+
+INSERT INTO major (major_id, major_name, major_code, major_category, training_program_id, description, status) VALUES
+  ('major-cs', '计算机科学与技术', 'CS', '计算机类', NULL, '面向软件开发、数据处理和后端工程能力培养的示例专业。', '启用')
+ON DUPLICATE KEY UPDATE major_name=VALUES(major_name), major_code=VALUES(major_code), major_category=VALUES(major_category), description=VALUES(description), status=VALUES(status);
 
 INSERT INTO course (course_id, course_name, course_type, course_goal, standard_id, status) VALUES
   ('course-java-001', 'Java 后端就业能力课程', '就业实训', '面向计软本科生就业准备，覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识。', 'standard-java-backend', '已发布')

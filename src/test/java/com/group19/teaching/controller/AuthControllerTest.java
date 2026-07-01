@@ -2,6 +2,7 @@ package com.group19.teaching.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -47,5 +48,15 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("40001"))
                 .andExpect(jsonPath("$.message").value("参数错误"));
+    }
+
+    @Test
+    void logoutInvalidatesToken() throws Exception {
+        mockMvc.perform(post("/api/auth/logout").header("token", "token-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.logged_out").value(true));
+
+        verify(authService).logout("token-1");
     }
 }
