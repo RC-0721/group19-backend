@@ -71,6 +71,7 @@ failsafe-reports/
 *.dump
 *.bak
 # Local development records
+scripts/
 plan.txt
 dev-logs/
 prompt.txt
