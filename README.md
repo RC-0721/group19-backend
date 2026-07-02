@@ -115,3 +115,21 @@ Demo accounts inserted by `init-auth.sql`:
 | `teacher001` | `123456` | `TEACHER` |
 | `admin001` | `123456` | `EDU_ADMIN` |
 
+## Database Init And Regression
+
+```powershell
+$env:MYSQL_PASSWORD = "<password>"
+.\scripts\verify_empty_database_init.ps1 -DbHost 127.0.0.1 -DbName teaching_sys -DbUser teaching_user
+.\scripts\verify_p0_public.ps1 -BaseUrl http://47.108.76.210
+.\scripts\verify_stage14_public.ps1 -BaseUrl http://47.108.76.210
+```
+
+Stage 14 adds admin platform summary/health, operation log CSV export, AI call log paging, and teacher class report CSV export.
+
+## Backup And Restore
+
+```powershell
+$env:MYSQL_PASSWORD = "<password>"
+.\scripts\backup_teaching_sys.ps1 -DbHost 127.0.0.1 -DbName teaching_sys -DbUser teaching_user
+.\scripts\restore_teaching_sys_backup.ps1 -SqlFile data/backups/teaching_sys_YYYYMMDD_HHMMSS.sql -ConfirmRestore
+```

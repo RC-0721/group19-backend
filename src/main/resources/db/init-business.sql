@@ -422,13 +422,24 @@ CREATE TABLE IF NOT EXISTS ai_config (
 
 CREATE TABLE IF NOT EXISTS ai_call_log (
   log_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64),
   scene VARCHAR(100) NOT NULL,
   model VARCHAR(100),
   prompt_version VARCHAR(50),
   input_summary TEXT,
   output_summary TEXT,
-  call_status VARCHAR(20) NOT NULL
+  call_status VARCHAR(20) NOT NULL,
+  call_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ai_call_log_user_time (user_id, call_time),
+  INDEX idx_ai_call_log_scene_status (scene, call_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'user_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN user_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'call_time');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN call_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS knowledge_point (
   knowledge_id VARCHAR(64) PRIMARY KEY,

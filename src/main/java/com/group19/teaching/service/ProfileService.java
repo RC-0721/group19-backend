@@ -64,6 +64,31 @@ public class ProfileService {
         );
     }
 
+    public String classReportCsv(String classId, String courseId, String jobId, User actor) {
+        Map<String, Object> analysis = classAnalysis(classId, courseId, jobId, actor);
+        StringBuilder csv = new StringBuilder();
+        csv.append("section,student_id,source_type,source_id,knowledge_id,skill_id,score,content\n");
+        csv.append(csvLine("summary", "", "", "", "", "", "", String.valueOf(analysis.get("knowledge_mastery"))));
+        csv.append(csvLine("summary", "", "", "", "", "", "", String.valueOf(analysis.get("skill_mastery"))));
+        for (Map<String, Object> evidence : castRows(analysis.get("evidences"))) {
+            csv.append(csvLine(
+                    "evidence",
+                    stringValue(evidence.get("student_id")),
+                    stringValue(evidence.get("source_type")),
+                    stringValue(evidence.get("source_id")),
+                    stringValue(evidence.get("knowledge_id")),
+                    stringValue(evidence.get("skill_id")),
+                    stringValue(evidence.get("score")),
+                    ""
+            ));
+        }
+        for (Map<String, Object> recommendation : castRows(analysis.get("recommendations"))) {
+            csv.append(csvLine("recommendation", "", "", "", "", "", "",
+                    stringValue(recommendation.get("recommend_content"))));
+        }
+        return csv.toString();
+    }
+
     @Transactional
     public Map<String, Object> get(String studentId, String jobId, User actor) {
         return profile(studentId, jobId, actor, false, "初始画像");
@@ -324,6 +349,27 @@ public class ProfileService {
 
     private boolean blankParam(String value) {
         return value != null && !StringUtils.hasText(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> castRows(Object value) {
+        return value instanceof List<?> rows ? (List<Map<String, Object>>) rows : List.of();
+    }
+
+    private String csvLine(String... values) {
+        List<String> escaped = new ArrayList<>();
+        for (String value : values) {
+            escaped.add(csvValue(value));
+        }
+        return String.join(",", escaped) + "\n";
+    }
+
+    private String csvValue(String value) {
+        String text = value == null ? "" : value;
+        if (text.contains("\"") || text.contains(",") || text.contains("\n") || text.contains("\r")) {
+            return "\"" + text.replace("\"", "\"\"") + "\"";
+        }
+        return text;
     }
 
     private String stringValue(Object value) {

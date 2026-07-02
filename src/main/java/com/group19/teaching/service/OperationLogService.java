@@ -5,6 +5,7 @@ import com.group19.teaching.common.ErrorCode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -60,6 +61,38 @@ public class OperationLogService {
         );
     }
 
+    public String exportCsv(
+            String userId,
+            String module,
+            String operationType,
+            String startTime,
+            String endTime) {
+        LocalDateTime start = parseTime(startTime);
+        LocalDateTime end = parseTime(endTime);
+        if (start != null && end != null && start.isAfter(end)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+
+        List<Object> params = new ArrayList<>();
+        String where = buildWhere(userId, module, operationType, start, end, params);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT log_id, user_id, role, module, operation_type, operation_result, operation_time
+                FROM operation_log
+                """ + where + """
+                ORDER BY operation_time DESC, log_id DESC
+                """, params.toArray());
+        List<String> columns = List.of("log_id", "user_id", "role", "module", "operation_type",
+                "operation_result", "operation_time");
+        StringBuilder csv = new StringBuilder();
+        csv.append(String.join(",", columns)).append("\n");
+        for (Map<String, Object> record : records) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            columns.forEach(column -> row.put(column, record.get(column)));
+            csv.append(csvLine(row.values().stream().map(this::csvValue).toList())).append("\n");
+        }
+        return csv.toString();
+    }
+
     private String buildWhere(
             String userId,
             String module,
@@ -98,5 +131,17 @@ public class OperationLogService {
         } catch (DateTimeParseException exception) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
+    }
+
+    private String csvLine(List<String> values) {
+        return String.join(",", values);
+    }
+
+    private String csvValue(Object value) {
+        String text = value == null ? "" : String.valueOf(value);
+        if (text.contains("\"") || text.contains(",") || text.contains("\n") || text.contains("\r")) {
+            return "\"" + text.replace("\"", "\"\"") + "\"";
+        }
+        return text;
     }
 }

@@ -2,7 +2,9 @@ package com.group19.teaching.controller;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.group19.teaching.common.BusinessException;
@@ -61,5 +63,18 @@ class OperationLogControllerTest {
                         .param("page_size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("40301"));
+    }
+
+    @Test
+    void exportReturnsCsv() throws Exception {
+        when(operationLogService.exportCsv("9", null, null, null, null))
+                .thenReturn("log_id,user_id\nop-1,9\n");
+
+        mockMvc.perform(get("/api/logs/operations/export")
+                        .header("token", "admin-token")
+                        .param("user_id", "9"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "text/csv"))
+                .andExpect(content().string("log_id,user_id\nop-1,9\n"));
     }
 }

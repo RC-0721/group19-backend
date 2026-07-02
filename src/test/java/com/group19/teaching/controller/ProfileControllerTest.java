@@ -2,6 +2,7 @@ package com.group19.teaching.controller;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -65,6 +66,19 @@ class ProfileControllerTest {
                         .param("job_id", "job-java-backend"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.evidences[0].student_id").value("student001"));
+    }
+
+    @Test
+    void classReportReturnsCsv() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "TEACHER")).thenReturn(teacher);
+        when(profileService.classReportCsv("class-cs-2026", null, null, teacher))
+                .thenReturn("section,student_id\nsummary,\n");
+
+        mockMvc.perform(get("/api/reports/classes/class-cs-2026")
+                        .header("token", "teacher-token"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("section,student_id\nsummary,\n"));
     }
 
     private static User user(String account, String role) {

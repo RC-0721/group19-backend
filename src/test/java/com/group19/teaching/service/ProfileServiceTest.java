@@ -92,6 +92,25 @@ class ProfileServiceTest {
     }
 
     @Test
+    void classReportCsvContainsEvidenceRows() {
+        when(jdbcTemplate.queryForList("SELECT class_id FROM class WHERE class_id = ? LIMIT 1", "class-cs-2026"))
+                .thenReturn(List.of(Map.of("class_id", "class-cs-2026")));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("class-cs-2026"), eq("teacher001"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("class-cs-2026"))).thenReturn(List.of(Map.of(
+                "student_id", "student001",
+                "source_type", "AI_INTERVIEW",
+                "source_id", "report-1",
+                "knowledge_id", "kp-001",
+                "skill_id", "skill-java-001",
+                "score", 82.0
+        )));
+
+        String csv = profileService.classReportCsv("class-cs-2026", null, null, user("teacher001", "TEACHER"));
+
+        assertEquals(true, csv.contains("evidence,student001,AI_INTERVIEW,report-1,kp-001,skill-java-001,82.0,"));
+    }
+
+    @Test
     void classAnalysisRejectsTeacherOutOfScope() {
         when(jdbcTemplate.queryForList("SELECT class_id FROM class WHERE class_id = ? LIMIT 1", "class-cs-2026"))
                 .thenReturn(List.of(Map.of("class_id", "class-cs-2026")));

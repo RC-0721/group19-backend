@@ -1,6 +1,7 @@
 package com.group19.teaching.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,5 +63,24 @@ class OperationLogServiceTest {
                         "2026-06-30T23:59:59", "2026-06-30T00:00:00", 1, 10));
 
         assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void exportCsvEscapesCommaValues() {
+        when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.<Object[]>any()))
+                .thenReturn(List.of(Map.of(
+                        "log_id", "op-1",
+                        "user_id", "admin001",
+                        "role", "EDU_ADMIN",
+                        "module", "USER",
+                        "operation_type", "UPDATE_USER",
+                        "operation_result", "SUCCESS,OK",
+                        "operation_time", "2026-07-02T10:00:00"
+                )));
+
+        String csv = operationLogService.exportCsv("admin001", null, null, null, null);
+
+        assertTrue(csv.startsWith("log_id,user_id,role,module,operation_type,operation_result,operation_time"));
+        assertTrue(csv.contains("\"SUCCESS,OK\""));
     }
 }

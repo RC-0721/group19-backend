@@ -5,6 +5,9 @@ import com.group19.teaching.domain.entity.User;
 import com.group19.teaching.service.AuthService;
 import com.group19.teaching.service.ProfileService;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,5 +63,18 @@ public class ProfileController {
             @RequestParam(value = "job_id", required = false) String jobId) {
         User actor = authService.requireRole(token, "TEACHER");
         return ApiResponse.success(profileService.classAnalysis(classId, courseId, jobId, actor));
+    }
+
+    @GetMapping("/api/reports/classes/{classId}")
+    public ResponseEntity<String> classReport(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String classId,
+            @RequestParam(value = "course_id", required = false) String courseId,
+            @RequestParam(value = "job_id", required = false) String jobId) {
+        User actor = authService.requireRole(token, "TEACHER");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=class-report.csv")
+                .contentType(new MediaType("text", "csv"))
+                .body(profileService.classReportCsv(classId, courseId, jobId, actor));
     }
 }
