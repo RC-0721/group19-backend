@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -109,6 +110,65 @@ class KnowledgeControllerTest {
                         .param("page_size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.records[0].chunk_id").value("chunk-1"));
+    }
+
+    @Test
+    void materialsReturnsPagedData() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(knowledgeService.listMaterials("course-java-001", null, "已发布", 1, 10, student)).thenReturn(Map.of(
+                "records", List.of(Map.of("material_id", "material-1", "parse_status", "已发布")),
+                "total", 1,
+                "page_no", 1,
+                "page_size", 10
+        ));
+
+        mockMvc.perform(get("/api/materials")
+                        .header("token", "student-token")
+                        .param("course_id", "course-java-001")
+                        .param("parse_status", "已发布")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].material_id").value("material-1"));
+    }
+
+    @Test
+    void updateMaterialReturnsStatus() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(knowledgeService.updateMaterial(eq("material-1"), any(), eq(teacher))).thenReturn(Map.of(
+                "material_id", "material-1",
+                "parse_status", "已发布"
+        ));
+
+        mockMvc.perform(put("/api/materials/material-1")
+                        .header("token", "teacher-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"parse_status\":\"已发布\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parse_status").value("已发布"));
+    }
+
+    @Test
+    void knowledgePointsReturnsPagedData() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(knowledgeService.listKnowledgePoints("course-java-001", null, "Java", 1, 10, teacher)).thenReturn(Map.of(
+                "records", List.of(Map.of("knowledge_id", "kp-001", "knowledge_name", "Java 基础")),
+                "total", 1,
+                "page_no", 1,
+                "page_size", 10
+        ));
+
+        mockMvc.perform(get("/api/knowledge/points")
+                        .header("token", "teacher-token")
+                        .param("course_id", "course-java-001")
+                        .param("keyword", "Java")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].knowledge_id").value("kp-001"));
     }
 
     @Test

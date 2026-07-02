@@ -43,10 +43,39 @@ UPDATE major SET major_code = major_id WHERE major_code IS NULL OR major_code = 
 CREATE TABLE IF NOT EXISTS course (
   course_id VARCHAR(64) PRIMARY KEY,
   course_name VARCHAR(100) NOT NULL,
+  course_code VARCHAR(64),
+  major_id VARCHAR(64),
+  credit DECIMAL(5,2),
   course_type VARCHAR(50),
   course_goal TEXT,
   standard_id VARCHAR(64),
-  status VARCHAR(20) NOT NULL DEFAULT '已发布'
+  status VARCHAR(20) NOT NULL DEFAULT '已发布',
+  INDEX idx_course_major_status (major_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course' AND COLUMN_NAME = 'course_code');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course ADD COLUMN course_code VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course' AND COLUMN_NAME = 'major_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course ADD COLUMN major_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course' AND COLUMN_NAME = 'credit');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course ADD COLUMN credit DECIMAL(5,2)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE course SET course_code = course_id WHERE course_code IS NULL OR course_code = '';
+
+CREATE TABLE IF NOT EXISTS teaching_standard (
+  standard_id VARCHAR(64) PRIMARY KEY,
+  major_id VARCHAR(64),
+  course_id VARCHAR(64),
+  standard_type VARCHAR(50) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  version VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT '启用',
+  INDEX idx_teaching_standard_major (major_id, status),
+  INDEX idx_teaching_standard_course (course_id, status),
+  INDEX idx_teaching_standard_type (standard_type, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `class` (
@@ -55,7 +84,9 @@ CREATE TABLE IF NOT EXISTS `class` (
   class_name VARCHAR(100) NOT NULL,
   grade VARCHAR(20),
   counselor_id VARCHAR(64),
-  status VARCHAR(20) NOT NULL DEFAULT '启用'
+  status VARCHAR(20) NOT NULL DEFAULT '启用',
+  INDEX idx_class_major_status (major_id, status),
+  INDEX idx_class_grade (grade)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS course_class (
@@ -99,8 +130,13 @@ CREATE TABLE IF NOT EXISTS chapter (
   parent_id VARCHAR(64),
   chapter_name VARCHAR(100) NOT NULL,
   sort_order INT NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT '启用',
   INDEX idx_chapter_course (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chapter' AND COLUMN_NAME = 'status');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE chapter ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT ''启用''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS course_material (
   material_id VARCHAR(64) PRIMARY KEY,
@@ -390,12 +426,17 @@ CREATE TABLE IF NOT EXISTS knowledge_point (
   course_id VARCHAR(64) NOT NULL,
   chapter_id VARCHAR(64),
   name VARCHAR(100) NOT NULL,
+  description TEXT,
   level VARCHAR(50),
   source VARCHAR(100),
   audit_status VARCHAR(20) NOT NULL DEFAULT '已发布',
   INDEX idx_knowledge_course (course_id),
   INDEX idx_knowledge_chapter (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_point' AND COLUMN_NAME = 'description');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE knowledge_point ADD COLUMN description TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS knowledge_chunk (
   chunk_id VARCHAR(64) PRIMARY KEY,
@@ -513,13 +554,17 @@ INSERT INTO major (major_id, major_name, major_code, major_category, training_pr
   ('major-cs', '计算机科学与技术', 'CS', '计算机类', NULL, '面向软件开发、数据处理和后端工程能力培养的示例专业。', '启用')
 ON DUPLICATE KEY UPDATE major_name=VALUES(major_name), major_code=VALUES(major_code), major_category=VALUES(major_category), description=VALUES(description), status=VALUES(status);
 
-INSERT INTO course (course_id, course_name, course_type, course_goal, standard_id, status) VALUES
-  ('course-java-001', 'Java 后端就业能力课程', '就业实训', '面向计软本科生就业准备，覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识。', 'standard-java-backend', '已发布')
-ON DUPLICATE KEY UPDATE course_name=VALUES(course_name), course_type=VALUES(course_type), course_goal=VALUES(course_goal), status=VALUES(status);
+INSERT INTO course (course_id, course_name, course_code, major_id, credit, course_type, course_goal, standard_id, status) VALUES
+  ('course-java-001', 'Java 后端就业能力课程', 'JAVA-BACKEND-001', 'major-cs', 3.0, '就业实训', '面向计软本科生就业准备，覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识。', 'standard-java-backend', '已发布')
+ON DUPLICATE KEY UPDATE course_name=VALUES(course_name), course_code=VALUES(course_code), major_id=VALUES(major_id), credit=VALUES(credit), course_type=VALUES(course_type), course_goal=VALUES(course_goal), status=VALUES(status);
+
+INSERT INTO teaching_standard (standard_id, major_id, course_id, standard_type, title, content, version, status) VALUES
+  ('standard-java-backend', 'major-cs', 'course-java-001', '课程目标', 'Java 后端就业能力课程目标', '覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识，支撑学生完成后端就业能力训练。', '2026', '启用')
+ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), course_id=VALUES(course_id), standard_type=VALUES(standard_type), title=VALUES(title), content=VALUES(content), version=VALUES(version), status=VALUES(status);
 
 INSERT INTO `class` (class_id, major_id, class_name, grade, counselor_id, status) VALUES
   ('class-cs-2026', 'major-cs', '计软 2026 班', '2026', NULL, '启用')
-ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), class_name=VALUES(class_name), grade=VALUES(grade), status=VALUES(status);
+ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), class_name=VALUES(class_name), grade=VALUES(grade), counselor_id=VALUES(counselor_id), status=VALUES(status);
 
 INSERT INTO course_class (course_class_id, course_id, class_id, teacher_id, semester, status) VALUES
   ('class-java-001', 'course-java-001', 'class-cs-2026', 'teacher001', '2026 春季', '开课中')
@@ -529,11 +574,11 @@ INSERT INTO student_profile (student_id, user_id, student_no, major_id, class_id
   ('student001', 'student001', '2026001', 'major-cs', 'class-cs-2026', 'job-java-backend', '2026')
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), student_no=VALUES(student_no), major_id=VALUES(major_id), class_id=VALUES(class_id), target_job_id=VALUES(target_job_id), enrollment_year=VALUES(enrollment_year);
 
-INSERT INTO chapter (chapter_id, course_id, parent_id, chapter_name, sort_order) VALUES
-  ('chapter-java-001', 'course-java-001', NULL, 'Java 基础与面向对象', '1'),
-  ('chapter-db-001', 'course-java-001', NULL, '数据库与缓存基础', '2'),
-  ('chapter-cs-001', 'course-java-001', NULL, '计算机基础与网络', '3')
-ON DUPLICATE KEY UPDATE chapter_name=VALUES(chapter_name), sort_order=VALUES(sort_order);
+INSERT INTO chapter (chapter_id, course_id, parent_id, chapter_name, sort_order, status) VALUES
+  ('chapter-java-001', 'course-java-001', NULL, 'Java 基础与面向对象', '1', '启用'),
+  ('chapter-db-001', 'course-java-001', NULL, '数据库与缓存基础', '2', '启用'),
+  ('chapter-cs-001', 'course-java-001', NULL, '计算机基础与网络', '3', '启用')
+ON DUPLICATE KEY UPDATE chapter_name=VALUES(chapter_name), sort_order=VALUES(sort_order), status=VALUES(status);
 
 INSERT INTO course_material (material_id, course_id, chapter_id, file_name, file_type, storage_path, parse_status) VALUES
   ('material-jg-001', 'course-java-001', 'chapter-java-001', 'JavaGuide Java 基础题目', 'markdown', 'data/Apache-2.0/JavaGuide/docs/java', '已发布'),
@@ -557,16 +602,16 @@ INSERT INTO project_task (project_task_id, course_id, job_id, title, task_goal, 
   ('project-java-001', 'course-java-001', 'job-java-backend', 'Spring Boot 课程问答 API 最小项目', '完成课程问答 API 最小闭环', '使用 Spring Boot 实现接口、鉴权和数据落库', '接口代码、说明文档和验证结果', '已发布')
 ON DUPLICATE KEY UPDATE job_id=VALUES(job_id), title=VALUES(title), task_goal=VALUES(task_goal), tech_requirement=VALUES(tech_requirement), deliverable=VALUES(deliverable), status=VALUES(status);
 
-INSERT INTO knowledge_point (knowledge_id, course_id, chapter_id, name, level, source, audit_status) VALUES
-  ('kp-001', 'course-java-001', 'chapter-java-001', 'Java 基础', '基础', 'JavaGuide', '已发布'),
-  ('kp-002', 'course-java-001', 'chapter-java-001', '面向对象', '基础', 'JavaGuide', '已发布'),
-  ('kp-003', 'course-java-001', 'chapter-java-001', 'Java 进阶', '基础', 'JavaGuide', '已发布'),
-  ('kp-004', 'course-java-001', 'chapter-java-001', '集合框架', '基础', 'JavaGuide', '已发布'),
-  ('kp-005', 'course-java-001', 'chapter-java-001', '并发编程', '基础', 'JavaGuide', '已发布'),
-  ('kp-006', 'course-java-001', 'chapter-db-001', 'MySQL 基础', '基础', 'JavaGuide', '已发布'),
-  ('kp-007', 'course-java-001', 'chapter-db-001', '缓存', '基础', 'JavaGuide', '已发布'),
-  ('kp-008', 'course-java-001', 'chapter-db-001', '网络协议', '基础', 'JavaGuide', '已发布')
-ON DUPLICATE KEY UPDATE name=VALUES(name), level=VALUES(level), source=VALUES(source), audit_status=VALUES(audit_status);
+INSERT INTO knowledge_point (knowledge_id, course_id, chapter_id, name, description, level, source, audit_status) VALUES
+  ('kp-001', 'course-java-001', 'chapter-java-001', 'Java 基础', 'Java 语言特点、字节码和基础语法。', '基础', 'JavaGuide', '已发布'),
+  ('kp-002', 'course-java-001', 'chapter-java-001', '面向对象', '封装、继承、多态和接口抽象。', '基础', 'JavaGuide', '已发布'),
+  ('kp-003', 'course-java-001', 'chapter-java-001', 'Java 进阶', 'JVM、异常、泛型和常用 API。', '基础', 'JavaGuide', '已发布'),
+  ('kp-004', 'course-java-001', 'chapter-java-001', '集合框架', 'List、Map、Set 和常见集合实现。', '基础', 'JavaGuide', '已发布'),
+  ('kp-005', 'course-java-001', 'chapter-java-001', '并发编程', '线程、锁、线程池和并发工具。', '基础', 'JavaGuide', '已发布'),
+  ('kp-006', 'course-java-001', 'chapter-db-001', 'MySQL 基础', '字段类型、事务、索引和 SQL 基础。', '基础', 'JavaGuide', '已发布'),
+  ('kp-007', 'course-java-001', 'chapter-db-001', '缓存', 'Redis 缓存、淘汰策略和常见使用场景。', '基础', 'JavaGuide', '已发布'),
+  ('kp-008', 'course-java-001', 'chapter-db-001', '网络协议', 'HTTP、TCP/IP 和常见网络基础。', '基础', 'JavaGuide', '已发布')
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), level=VALUES(level), source=VALUES(source), audit_status=VALUES(audit_status);
 
 INSERT INTO knowledge_chunk (chunk_id, material_id, knowledge_id, chunk_text, embedding_id, version, status) VALUES
   ('chunk-jg-001', 'material-jg-001', 'kp-001', 'Java 基础课程资料覆盖 Java 语言特点、字节码、面向对象、集合和并发等核心知识。', NULL, 'v1', '已发布'),

@@ -6,6 +6,7 @@ import com.group19.teaching.domain.vo.LoginResponse;
 import com.group19.teaching.service.AuthService;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -25,6 +26,16 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(authService.login(request));
+    }
+
+    @GetMapping("/me")
+    public ApiResponse<Map<String, Object>> me(@RequestHeader(value = "token", required = false) String token) {
+        return ApiResponse.success(authService.currentUser(token));
+    }
+
+    @PostMapping("/refresh")
+    public ApiResponse<Map<String, Object>> refresh(@RequestHeader(value = "token", required = false) String token) {
+        return ApiResponse.success(authService.refresh(token));
     }
 
     @PostMapping("/logout")

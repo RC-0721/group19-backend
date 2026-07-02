@@ -28,6 +28,11 @@ public class MybatisUserRepository implements UserRepository {
     }
 
     @Override
+    public void save(User user) {
+        userMapper.insert(user);
+    }
+
+    @Override
     public void updateUserState(User user) {
         userMapper.updateById(user);
     }

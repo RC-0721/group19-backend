@@ -11,6 +11,7 @@ import com.group19.teaching.domain.vo.LoginResponse;
 import com.group19.teaching.repository.UserRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 class AuthLogoutServiceTest {
@@ -19,7 +20,8 @@ class AuthLogoutServiceTest {
 
     @Test
     void logoutInvalidatesIssuedToken() {
-        AuthService authService = new AuthService(new Repository(), new BCryptPasswordEncoder());
+        AuthService authService = new AuthService(new Repository(), new BCryptPasswordEncoder(),
+                org.mockito.Mockito.mock(JdbcTemplate.class));
         LoginResponse response = authService.login(new LoginRequest("student001", "123456", "STUDENT"));
 
         authService.logout("Bearer " + response.token());
@@ -31,7 +33,8 @@ class AuthLogoutServiceTest {
 
     @Test
     void logoutRejectsMissingToken() {
-        AuthService authService = new AuthService(new Repository(), new BCryptPasswordEncoder());
+        AuthService authService = new AuthService(new Repository(), new BCryptPasswordEncoder(),
+                org.mockito.Mockito.mock(JdbcTemplate.class));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> authService.logout(null));
 
@@ -49,6 +52,11 @@ class AuthLogoutServiceTest {
         @Override
         public Optional<User> findById(Long id) {
             return Optional.of(user).filter(value -> id.equals(value.getId()));
+        }
+
+        @Override
+        public void save(User user) {
+            throw new UnsupportedOperationException("not needed in auth logout tests");
         }
 
         @Override
