@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -21,6 +22,18 @@ public class AIInterviewController {
     public AIInterviewController(AIInterviewService interviewService, AuthService authService) {
         this.interviewService = interviewService;
         this.authService = authService;
+    }
+
+    @GetMapping("/api/interviews/sessions")
+    public ApiResponse<Map<String, Object>> list(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "student_id", required = false) String studentId,
+            @RequestParam(value = "job_id", required = false) String jobId,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER");
+        return ApiResponse.success(interviewService.list(studentId, jobId, status, pageNo, pageSize, actor));
     }
 
     @PostMapping("/api/interviews/sessions")

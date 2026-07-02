@@ -5,6 +5,7 @@ import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,6 +21,38 @@ public class HomeworkService {
 
     public HomeworkService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public Map<String, Object> list(
+            String courseClassId,
+            String status,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (StringUtils.hasText(courseClassId)) {
+            requireCourseClassAccess(courseClassId, actor);
+        }
+        List<Object> params = new ArrayList<>();
+        String where = buildListWhere(courseClassId, status, actor, params);
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM homework h JOIN course_class cc ON h.course_class_id = cc.course_class_id " + where,
+                Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT h.homework_id, h.course_id, h.course_class_id, h.title, h.submit_requirement,
+                       h.scoring_standard, h.deadline, h.status, cc.class_id, cc.teacher_id
+                FROM homework h
+                JOIN course_class cc ON h.course_class_id = cc.course_class_id
+                """ + where + """
+                ORDER BY h.deadline DESC, h.homework_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total,
+                "page_no", pageNo, "page_size", pageSize);
     }
 
     @Transactional
@@ -192,6 +225,57 @@ public class HomeworkService {
                 """, homeworkId, teacherId);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private String buildListWhere(String courseClassId, String status, User actor, List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            where.append("""
+                    AND EXISTS (
+                      SELECT 1 FROM student_profile sp
+                      WHERE sp.student_id = ? AND sp.class_id = cc.class_id
+                    )
+                    """);
+            params.add(actor.getAccount());
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            where.append("AND cc.teacher_id = ?\n");
+            params.add(actor.getAccount());
+        } else {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        append(where, params, "h.course_class_id", courseClassId);
+        append(where, params, "h.status", status);
+        return where.toString();
+    }
+
+    private void requireCourseClassAccess(String courseClassId, User actor) {
+        Integer count;
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class cc
+                    JOIN student_profile sp ON cc.class_id = sp.class_id
+                    WHERE cc.course_class_id = ? AND sp.student_id = ?
+                    """, Integer.class, courseClassId, actor.getAccount());
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE course_class_id = ? AND teacher_id = ?
+                    """, Integer.class, courseClassId, actor.getAccount());
+        } else {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if (count == null || count == 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private void append(StringBuilder where, List<Object> params, String column, String value) {
+        if (StringUtils.hasText(value)) {
+            where.append("AND ").append(column).append(" = ?\n");
+            params.add(value.trim());
         }
     }
 

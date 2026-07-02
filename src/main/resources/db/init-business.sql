@@ -411,6 +411,15 @@ CREATE TABLE IF NOT EXISTS learning_recommendation (
   INDEX idx_recommend_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS ai_config (
+  config_id VARCHAR(64) PRIMARY KEY,
+  model_name VARCHAR(100) NOT NULL,
+  prompt_version VARCHAR(50) NOT NULL,
+  timeout_ms INT NOT NULL DEFAULT 30000,
+  fallback_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  status VARCHAR(20) NOT NULL DEFAULT '启用'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS ai_call_log (
   log_id VARCHAR(64) PRIMARY KEY,
   scene VARCHAR(100) NOT NULL,
@@ -549,6 +558,10 @@ CREATE TABLE IF NOT EXISTS wrong_book (
 INSERT INTO data_source (source_id, source_name, source_type, source_url, license, usage_note) VALUES
   ('source-javaguide', 'JavaGuide', 'GitHub Repository', 'https://github.com/Snailclimb/JavaGuide', 'Apache-2.0', 'Keep source URL and license when displaying imported question records.')
 ON DUPLICATE KEY UPDATE source_name=VALUES(source_name), source_type=VALUES(source_type), source_url=VALUES(source_url), license=VALUES(license), usage_note=VALUES(usage_note);
+
+INSERT INTO ai_config (config_id, model_name, prompt_version, timeout_ms, fallback_enabled, status) VALUES
+  ('default', 'mock-ai', 'v1', 30000, TRUE, '启用')
+ON DUPLICATE KEY UPDATE config_id = config_id;
 
 INSERT INTO major (major_id, major_name, major_code, major_category, training_program_id, description, status) VALUES
   ('major-cs', '计算机科学与技术', 'CS', '计算机类', NULL, '面向软件开发、数据处理和后端工程能力培养的示例专业。', '启用')

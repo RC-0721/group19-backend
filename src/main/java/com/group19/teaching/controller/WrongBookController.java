@@ -26,9 +26,12 @@ public class WrongBookController {
     @GetMapping
     public ApiResponse<Map<String, Object>> list(
             @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "knowledge_id", required = false) String knowledgeId,
+            @RequestParam(value = "job_id", required = false) String jobId,
+            @RequestParam(value = "wrong_book_status", required = false) String wrongBookStatus,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
-        User actor = authService.requireRole(token, "STUDENT");
-        return ApiResponse.success(wrongBookService.list(actor.getAccount(), pageNo, pageSize));
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(wrongBookService.list(knowledgeId, jobId, wrongBookStatus, pageNo, pageSize, actor));
     }
 }

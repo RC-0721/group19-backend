@@ -123,6 +123,19 @@ class AIInterviewServiceTest {
         assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
     }
 
+    @Test
+    void listReturnsStudentSessions() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student001"), eq("job-java-backend")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"), eq("job-java-backend"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of("session_id", "session-1")));
+
+        Map<String, Object> result = interviewService.list(
+                null, "job-java-backend", null, 1, 10, user("student001", "STUDENT"));
+
+        assertEquals(1, result.get("total"));
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);

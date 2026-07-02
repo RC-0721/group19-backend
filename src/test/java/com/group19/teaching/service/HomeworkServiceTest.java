@@ -153,6 +153,18 @@ class HomeworkServiceTest {
         assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
     }
 
+    @Test
+    void listReturnsTeacherHomeworks() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("teacher001"), eq("已发布")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("teacher001"), eq("已发布"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of("homework_id", "hw-1")));
+
+        Map<String, Object> result = homeworkService.list(null, "已发布", 1, 10, user("teacher001", "TEACHER"));
+
+        assertEquals(1, result.get("total"));
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);

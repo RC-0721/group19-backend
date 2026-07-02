@@ -204,6 +204,19 @@ class ProjectServiceTest {
         assertEquals(ErrorCode.STATE_NOT_ALLOWED, exception.errorCode());
     }
 
+    @Test
+    void listReturnsAdminProjects() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("job-java-backend"), eq("已发布")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("job-java-backend"), eq("已发布"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of("project_task_id", "project-1")));
+
+        Map<String, Object> result = projectService.list(
+                null, "job-java-backend", "已发布", 1, 10, user("admin001", "EDU_ADMIN"));
+
+        assertEquals(1, result.get("total"));
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);

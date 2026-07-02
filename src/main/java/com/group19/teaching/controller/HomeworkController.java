@@ -26,6 +26,17 @@ public class HomeworkController {
         this.authService = authService;
     }
 
+    @GetMapping("/api/homeworks")
+    public ApiResponse<Map<String, Object>> list(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER");
+        return ApiResponse.success(homeworkService.list(courseClassId, status, pageNo, pageSize, actor));
+    }
+
     @PostMapping("/api/homeworks")
     public ApiResponse<Map<String, Object>> create(
             @RequestHeader(value = "token", required = false) String token,

@@ -5,6 +5,7 @@ import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +23,46 @@ public class AIInterviewService {
 
     public AIInterviewService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public Map<String, Object> list(
+            String studentId,
+            String jobId,
+            String status,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            if (StringUtils.hasText(studentId) && !actor.getAccount().equals(studentId.trim())) {
+                throw new BusinessException(ErrorCode.FORBIDDEN);
+            }
+            studentId = actor.getAccount();
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole()) && StringUtils.hasText(studentId)) {
+            requireTeacherStudent(studentId.trim(), actor.getAccount());
+        } else if (!"TEACHER".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        List<Object> params = new ArrayList<>();
+        String where = buildListWhere(studentId, jobId, status, actor, params);
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ai_session s " + where,
+                Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT s.session_id, s.student_id, s.job_id, s.scene, s.model, s.prompt_version,
+                       s.status, s.created_time, r.report_id, r.score
+                FROM ai_session s
+                LEFT JOIN ai_interview_report r ON s.session_id = r.session_id
+                """ + where + """
+                ORDER BY s.created_time DESC, s.session_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total,
+                "page_no", pageNo, "page_size", pageSize);
     }
 
     @Transactional
@@ -194,6 +235,32 @@ public class AIInterviewService {
                 """, Integer.class, studentId, teacherId);
         if (count == null || count == 0) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private String buildListWhere(String studentId, String jobId, String status, User actor, List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if ("TEACHER".equalsIgnoreCase(actor.getRole()) && !StringUtils.hasText(studentId)) {
+            where.append("""
+                    AND EXISTS (
+                      SELECT 1
+                      FROM student_profile sp
+                      JOIN course_class cc ON sp.class_id = cc.class_id
+                      WHERE sp.student_id = s.student_id AND cc.teacher_id = ?
+                    )
+                    """);
+            params.add(actor.getAccount());
+        }
+        append(where, params, "s.student_id", studentId);
+        append(where, params, "s.job_id", jobId);
+        append(where, params, "s.status", status);
+        return where.toString();
+    }
+
+    private void append(StringBuilder where, List<Object> params, String column, String value) {
+        if (StringUtils.hasText(value)) {
+            where.append("AND ").append(column).append(" = ?\n");
+            params.add(value.trim());
         }
     }
 

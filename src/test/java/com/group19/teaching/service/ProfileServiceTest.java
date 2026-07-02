@@ -3,7 +3,10 @@ package com.group19.teaching.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.group19.teaching.common.BusinessException;
@@ -139,6 +142,26 @@ class ProfileServiceTest {
                 "class-cs-2026", null, "job-java-backend", user("teacher001", "TEACHER"));
 
         assertEquals(1, ((List<?>) result.get("evidences")).size());
+    }
+
+    @Test
+    void refreshReturnsProfileStatus() {
+        when(jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"))).thenReturn(List.of(Map.of(
+                "evidence_id", "evidence-1",
+                "score", 82.0
+        )));
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"), eq("job-java-backend"))).thenReturn(List.of());
+        when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.startsWith("profile-"))).thenReturn(List.of());
+
+        Map<String, Object> result = profileService.refresh(
+                "student001", "job-java-backend", user("student001", "STUDENT"));
+
+        assertEquals("周期更新", result.get("profile_status"));
+        verify(jdbcTemplate, times(2)).update(anyString(), eq("student001"));
+        verify(jdbcTemplate).update(anyString(), anyString(), eq("student001"), eq("job-java-backend"),
+                eq("周期更新"), anyString(), anyString(), any());
     }
 
     private static User user(String account, String role) {

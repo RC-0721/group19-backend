@@ -13,6 +13,7 @@ import com.group19.teaching.service.WrongBookService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -33,8 +34,14 @@ class WrongBookControllerTest {
     @Test
     void listReturnsWrongBookData() throws Exception {
         User student = user();
-        when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
-        when(wrongBookService.list("student001", 1, 10)).thenReturn(Map.of(
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(wrongBookService.list(
+                ArgumentMatchers.eq("kp-1"),
+                ArgumentMatchers.eq("job-1"),
+                ArgumentMatchers.eq("未掌握"),
+                ArgumentMatchers.eq(1),
+                ArgumentMatchers.eq(10),
+                ArgumentMatchers.eq(student))).thenReturn(Map.of(
                 "records", List.of(Map.of(
                         "question_id", "q-1",
                         "stem", "题干",
@@ -48,6 +55,9 @@ class WrongBookControllerTest {
 
         mockMvc.perform(get("/api/wrong-book")
                         .header("token", "student-token")
+                        .param("knowledge_id", "kp-1")
+                        .param("job_id", "job-1")
+                        .param("wrong_book_status", "未掌握")
                         .param("page_no", "1")
                         .param("page_size", "10"))
                 .andExpect(status().isOk())
@@ -58,12 +68,12 @@ class WrongBookControllerTest {
     }
 
     @Test
-    void listRejectsNonStudentRole() throws Exception {
-        when(authService.requireRole("teacher-token", "STUDENT"))
+    void listRejectsDisallowedRole() throws Exception {
+        when(authService.requireRole("bad-token", "STUDENT", "TEACHER", "EDU_ADMIN"))
                 .thenThrow(new BusinessException(ErrorCode.FORBIDDEN));
 
         mockMvc.perform(get("/api/wrong-book")
-                        .header("token", "teacher-token")
+                        .header("token", "bad-token")
                         .param("page_no", "1")
                         .param("page_size", "10"))
                 .andExpect(status().isOk())

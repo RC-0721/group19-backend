@@ -66,6 +66,56 @@ public class ProfileService {
 
     @Transactional
     public Map<String, Object> get(String studentId, String jobId, User actor) {
+        return profile(studentId, jobId, actor, false, "初始画像");
+    }
+
+    @Transactional
+    public Map<String, Object> refresh(String studentId, String jobId, User actor) {
+        Map<String, Object> profile = profile(studentId, jobId, actor, true, "周期更新");
+        logOperation(actor, "REFRESH_PROFILE");
+        return Map.of(
+                "profile_id", profile.get("profile_id"),
+                "profile_status", profile.get("profile_status"),
+                "updated_time", profile.get("updated_time")
+        );
+    }
+
+    @Transactional
+    public Map<String, Object> listRecommendations(
+            String studentId,
+            String jobId,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (!StringUtils.hasText(studentId) && "STUDENT".equalsIgnoreCase(actor.getRole())) {
+            studentId = actor.getAccount();
+        }
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        Map<String, Object> profile = profile(studentId, jobId, actor, false, "初始画像");
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM learning_recommendation
+                WHERE profile_id = ?
+                """, Integer.class, profile.get("profile_id"));
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT recommend_id, student_id, profile_id, target_weakness, recommend_content, status, created_time
+                FROM learning_recommendation
+                WHERE profile_id = ?
+                ORDER BY created_time DESC, recommend_id
+                LIMIT ? OFFSET ?
+                """, profile.get("profile_id"), pageSize, (pageNo - 1) * pageSize);
+        return Map.of("records", records, "total", total == null ? 0 : total,
+                "page_no", pageNo, "page_size", pageSize);
+    }
+
+    private Map<String, Object> profile(
+            String studentId,
+            String jobId,
+            User actor,
+            boolean refreshLearningEvidence,
+            String readyStatus) {
         if (!StringUtils.hasText(studentId) || !StringUtils.hasText(jobId)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
@@ -76,6 +126,9 @@ public class ProfileService {
             requireTeacherStudent(studentId, actor.getAccount());
         }
         requireJob(jobId);
+        if (refreshLearningEvidence) {
+            upsertLearningEvidence(studentId);
+        }
         List<Map<String, Object>> evidences = jdbcTemplate.queryForList("""
                 SELECT evidence_id, student_id, source_type, source_id, knowledge_id, skill_id, score
                 FROM ability_evidence
@@ -93,20 +146,20 @@ public class ProfileService {
         String skillMastery = evidences.isEmpty() ? "数据不足" : "岗位技能掌握度 " + Math.round(avg);
         String profileId = profileId(studentId, jobId);
         LocalDateTime now = LocalDateTime.now();
+        String profileStatus = evidences.isEmpty() ? "数据不足" : readyStatus;
         if (profileExists(profileId)) {
             jdbcTemplate.update("""
                     UPDATE ability_profile
                     SET profile_status = ?, knowledge_mastery = ?, skill_mastery = ?, updated_time = ?
                     WHERE profile_id = ?
-                    """, evidences.isEmpty() ? "数据不足" : "初始画像", knowledgeMastery, skillMastery,
-                    Timestamp.valueOf(now), profileId);
+                    """, profileStatus, knowledgeMastery, skillMastery, Timestamp.valueOf(now), profileId);
         } else {
             jdbcTemplate.update("""
                     INSERT INTO ability_profile
                       (profile_id, student_id, job_id, profile_status, knowledge_mastery, skill_mastery, updated_time)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, profileId, studentId, jobId, evidences.isEmpty() ? "数据不足" : "初始画像",
-                    knowledgeMastery, skillMastery, Timestamp.valueOf(now));
+                    """, profileId, studentId, jobId, profileStatus, knowledgeMastery, skillMastery,
+                    Timestamp.valueOf(now));
         }
         String recommendId = recommendationId(profileId);
         jdbcTemplate.update("""
@@ -125,11 +178,43 @@ public class ProfileService {
                 """, profileId);
         return Map.of(
                 "profile_id", profileId,
+                "profile_status", profileStatus,
                 "knowledge_mastery", knowledgeMastery,
                 "skill_mastery", skillMastery,
                 "evidences", evidences,
-                "recommendations", recommendations
+                "recommendations", recommendations,
+                "updated_time", now
         );
+    }
+
+    private void upsertLearningEvidence(String studentId) {
+        jdbcTemplate.update("""
+                INSERT INTO ability_evidence (evidence_id, student_id, source_type, source_id, knowledge_id, score)
+                SELECT CONCAT('evidence-', pr.record_id), pr.student_id, 'PRACTICE', pr.record_id,
+                       MIN(qkr.knowledge_id), pr.score
+                FROM practice_record pr
+                LEFT JOIN question_knowledge_relation qkr ON pr.question_id = qkr.question_id
+                WHERE pr.student_id = ?
+                GROUP BY pr.record_id, pr.student_id, pr.score
+                ON DUPLICATE KEY UPDATE knowledge_id = VALUES(knowledge_id), score = VALUES(score)
+                """, studentId);
+        jdbcTemplate.update("""
+                INSERT INTO ability_evidence (evidence_id, student_id, source_type, source_id, score)
+                SELECT CONCAT('evidence-', hr.review_id), hs.student_id, 'HOMEWORK', hr.review_id, hr.teacher_score
+                FROM homework_review hr
+                JOIN homework_submit hs ON hr.submit_id = hs.submit_id
+                WHERE hs.student_id = ? AND hr.teacher_score IS NOT NULL
+                ON DUPLICATE KEY UPDATE score = VALUES(score)
+                """, studentId);
+    }
+
+    private void logOperation(User actor, String operationType) {
+        jdbcTemplate.update("""
+                INSERT INTO operation_log
+                  (log_id, user_id, role, module, operation_type, operation_result, operation_time)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+                """, "log-" + UUID.randomUUID(), actor.getAccount(), actor.getRole(),
+                "PROFILE", operationType, "SUCCESS");
     }
 
     private void requireJob(String jobId) {

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.group19.teaching.common.BusinessException;
+import com.group19.teaching.domain.entity.User;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,8 @@ class WrongBookServiceTest {
 
     @Test
     void listRejectsInvalidPageSize() {
-        assertThrows(BusinessException.class, () -> wrongBookService.list("student001", 1, 0));
+        assertThrows(BusinessException.class,
+                () -> wrongBookService.list(null, null, null, 1, 0, user("student001", "STUDENT")));
     }
 
     @Test
@@ -32,9 +34,29 @@ class WrongBookServiceTest {
                 "master_status", "未掌握"
         )));
 
-        Map<String, Object> result = wrongBookService.list("student001", 1, 10);
+        Map<String, Object> result = wrongBookService.list(null, null, null, 1, 10, user("student001", "STUDENT"));
 
         assertEquals(1, result.get("total"));
         assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
+    void listSupportsFilters() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class),
+                eq("student001"), eq("kp-1"), eq("job-1"), eq("未掌握"))).thenReturn(0);
+        when(jdbcTemplate.queryForList(anyString(),
+                eq("student001"), eq("kp-1"), eq("job-1"), eq("未掌握"), eq(10), eq(0))).thenReturn(List.of());
+
+        Map<String, Object> result = wrongBookService.list(
+                "kp-1", "job-1", "未掌握", 1, 10, user("student001", "STUDENT"));
+
+        assertEquals(0, result.get("total"));
+    }
+
+    private static User user(String account, String role) {
+        User user = new User();
+        user.setAccount(account);
+        user.setRole(role);
+        return user;
     }
 }

@@ -23,6 +23,38 @@ public class ProjectService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public Map<String, Object> list(
+            String courseId,
+            String jobId,
+            String status,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (StringUtils.hasText(courseId)) {
+            requireCourseAccess(courseId, actor);
+        }
+        List<Object> params = new ArrayList<>();
+        String where = buildListWhere(courseId, jobId, status, actor, params);
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT pt.project_task_id) FROM project_task pt " + where,
+                Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT DISTINCT pt.project_task_id, pt.course_id, pt.job_id, pt.title, pt.task_goal,
+                       pt.tech_requirement, pt.deliverable, pt.status
+                FROM project_task pt
+                """ + where + """
+                ORDER BY pt.project_task_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total,
+                "page_no", pageNo, "page_size", pageSize);
+    }
+
     @Transactional
     public Map<String, Object> createStandard(Map<String, Object> request) {
         String jobId = stringValue(request.get("job_id"));
@@ -232,6 +264,68 @@ public class ProjectService {
                 """, projectTaskId, teacherId);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private String buildListWhere(String courseId, String jobId, String status, User actor, List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            where.append("""
+                    AND EXISTS (
+                      SELECT 1
+                      FROM course_class cc
+                      JOIN student_profile sp ON cc.class_id = sp.class_id
+                      WHERE cc.course_id = pt.course_id AND sp.student_id = ?
+                    )
+                    """);
+            params.add(actor.getAccount());
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            where.append("""
+                    AND EXISTS (
+                      SELECT 1 FROM course_class cc
+                      WHERE cc.course_id = pt.course_id AND cc.teacher_id = ?
+                    )
+                    """);
+            params.add(actor.getAccount());
+        } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        append(where, params, "pt.course_id", courseId);
+        append(where, params, "pt.job_id", jobId);
+        append(where, params, "pt.status", status);
+        return where.toString();
+    }
+
+    private void requireCourseAccess(String courseId, User actor) {
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return;
+        }
+        Integer count;
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class cc
+                    JOIN student_profile sp ON cc.class_id = sp.class_id
+                    WHERE cc.course_id = ? AND sp.student_id = ?
+                    """, Integer.class, courseId, actor.getAccount());
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE course_id = ? AND teacher_id = ?
+                    """, Integer.class, courseId, actor.getAccount());
+        } else {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if (count == null || count == 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private void append(StringBuilder where, List<Object> params, String column, String value) {
+        if (StringUtils.hasText(value)) {
+            where.append("AND ").append(column).append(" = ?\n");
+            params.add(value.trim());
         }
     }
 

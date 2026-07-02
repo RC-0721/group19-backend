@@ -105,6 +105,31 @@ class PreTaskServiceTest {
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
     }
 
+    @Test
+    void listSubmitsReturnsQueue() {
+        when(jdbcTemplate.queryForList(anyString(), eq("pre-1")))
+                .thenReturn(List.of(Map.of("pre_task_id", "pre-1")));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("pre-1"), eq("teacher001"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("pre-1"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("pre-1"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of("submit_id", "submit-1")));
+
+        Map<String, Object> result = preTaskService.listSubmits("pre-1", 1, 10, user("teacher001", "TEACHER"));
+
+        assertEquals(1, result.get("total"));
+        assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
+    void listSubmitsRejectsMissingTask() {
+        when(jdbcTemplate.queryForList(anyString(), eq("missing"))).thenReturn(List.of());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> preTaskService.listSubmits("missing", 1, 10, user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);
