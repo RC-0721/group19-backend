@@ -23,7 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class KnowledgeService {
 
     private static final long MAX_FILE_SIZE = 20L * 1024 * 1024;
-    private static final List<String> MATERIAL_STATUSES = List.of("已上传", "解析中", "待审核", "已发布", "解析失败");
+    private static final List<String> MATERIAL_STATUSES = List.of("待解析", "解析中", "待确认", "已确认", "已上传", "待审核", "已发布", "解析失败");
     private static final List<String> KNOWLEDGE_STATUSES = List.of("待审核", "已发布", "已驳回", "停用");
     private static final List<String> CHUNK_STATUSES = List.of("待审核", "已发布", "已驳回");
 
@@ -71,7 +71,7 @@ public class KnowledgeService {
         requireChapter(courseId, chapterId);
         String fileName = cleanFileName(file.getOriginalFilename());
         String fileType = fileType(fileName);
-        if (!List.of("txt", "md").contains(fileType)) {
+        if (!List.of("txt", "md", "pdf", "doc", "docx", "ppt", "pptx", "mp4", "mov", "avi").contains(fileType)) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
 
@@ -87,18 +87,17 @@ public class KnowledgeService {
             file.transferTo(target);
             jdbcTemplate.update("""
                     INSERT INTO course_material (material_id, course_id, chapter_id, file_name, file_type, storage_path, parse_status)
-                    VALUES (?, ?, ?, ?, ?, ?, '待审核')
+                    VALUES (?, ?, ?, ?, ?, ?, '待解析')
                     """, materialId, courseId, chapterId, fileName, fileType, target.toString());
             jdbcTemplate.update("""
-                    INSERT INTO material_parse_task (parse_task_id, material_id, task_status, started_time, finished_time)
-                    VALUES (?, ?, '已完成', ?, ?)
-                    """, parseTaskId, materialId, LocalDateTime.now(), LocalDateTime.now());
-            createChunks(materialId, courseId, chapterId, Files.readString(target));
+                    INSERT INTO material_parse_task (parse_task_id, material_id, task_type, task_status, created_by, started_time)
+                    VALUES (?, ?, 'MATERIAL_PARSE', '待解析', ?, ?)
+                    """, parseTaskId, materialId, actor.getAccount(), LocalDateTime.now());
             writeOperationLog(actor, "MATERIAL", "CREATE_MATERIAL");
         } catch (IOException exception) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
-        return Map.of("material_id", materialId, "parse_status", "待审核", "parse_task_id", parseTaskId);
+        return Map.of("material_id", materialId, "parse_status", "待解析", "parse_task_id", parseTaskId);
     }
 
     public Map<String, Object> listMaterials(String courseId, String chapterId, String parseStatus,
@@ -181,7 +180,8 @@ public class KnowledgeService {
         Map<String, Object> current = material(materialId);
         requireTeacherCourse(stringValue(current.get("course_id")), actor);
         return Map.of("records", jdbcTemplate.queryForList("""
-                SELECT parse_task_id, material_id, task_status, error_message, started_time, finished_time
+                SELECT parse_task_id, material_id, task_type, task_status, result_json, error_message, created_by,
+                       started_time, finished_time
                 FROM material_parse_task
                 WHERE material_id = ?
                 ORDER BY started_time DESC, parse_task_id

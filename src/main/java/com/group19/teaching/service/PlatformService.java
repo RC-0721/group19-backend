@@ -81,7 +81,8 @@ public class PlatformService {
         pageParams.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
                 SELECT log_id, user_id, scene, model, prompt_version, input_summary,
-                       output_summary, call_status, call_time
+                       output_summary, call_status, call_time, duration_ms, token_input,
+                       token_output, error_message, request_id
                 FROM ai_call_log
                 """ + where + """
                 ORDER BY call_time DESC, log_id DESC

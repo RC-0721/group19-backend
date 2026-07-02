@@ -146,19 +146,45 @@ CREATE TABLE IF NOT EXISTS course_material (
   file_type VARCHAR(50),
   storage_path VARCHAR(500),
   parse_status VARCHAR(20) NOT NULL DEFAULT '已发布',
+  ai_tags TEXT,
+  ai_category VARCHAR(100),
+  content_summary TEXT,
   INDEX idx_material_course (course_id),
   INDEX idx_material_chapter (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_material' AND COLUMN_NAME = 'ai_tags');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course_material ADD COLUMN ai_tags TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_material' AND COLUMN_NAME = 'ai_category');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course_material ADD COLUMN ai_category VARCHAR(100)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_material' AND COLUMN_NAME = 'content_summary');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE course_material ADD COLUMN content_summary TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS material_parse_task (
   parse_task_id VARCHAR(64) PRIMARY KEY,
   material_id VARCHAR(64) NOT NULL,
+  task_type VARCHAR(50) NOT NULL DEFAULT 'MATERIAL_PARSE',
   task_status VARCHAR(20) NOT NULL DEFAULT '解析中',
+  result_json MEDIUMTEXT,
   error_message TEXT,
+  created_by VARCHAR(64),
   started_time DATETIME,
   finished_time DATETIME,
   INDEX idx_parse_task_material (material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_parse_task' AND COLUMN_NAME = 'task_type');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_parse_task ADD COLUMN task_type VARCHAR(50) NOT NULL DEFAULT ''MATERIAL_PARSE''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_parse_task' AND COLUMN_NAME = 'result_json');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_parse_task ADD COLUMN result_json MEDIUMTEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_parse_task' AND COLUMN_NAME = 'created_by');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_parse_task ADD COLUMN created_by VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS pre_task (
   pre_task_id VARCHAR(64) PRIMARY KEY,
@@ -430,6 +456,11 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
   output_summary TEXT,
   call_status VARCHAR(20) NOT NULL,
   call_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  duration_ms INT NULL,
+  token_input INT NULL,
+  token_output INT NULL,
+  error_message TEXT NULL,
+  request_id VARCHAR(64) NULL,
   INDEX idx_ai_call_log_user_time (user_id, call_time),
   INDEX idx_ai_call_log_scene_status (scene, call_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -440,6 +471,36 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'call_time');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN call_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'duration_ms');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN duration_ms INT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'token_input');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN token_input INT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'token_output');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN token_output INT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'error_message');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN error_message TEXT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'request_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN request_id VARCHAR(64) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS ai_task (
+  task_id VARCHAR(64) PRIMARY KEY,
+  task_type VARCHAR(64) NOT NULL,
+  created_by VARCHAR(64) NOT NULL,
+  request_json TEXT,
+  result_json MEDIUMTEXT,
+  task_status VARCHAR(20) NOT NULL,
+  error_message TEXT,
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_time DATETIME NULL,
+  finished_time DATETIME NULL,
+  INDEX idx_ai_task_created_by_time (created_by, created_time),
+  INDEX idx_ai_task_type_status (task_type, task_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS knowledge_point (
   knowledge_id VARCHAR(64) PRIMARY KEY,
@@ -450,12 +511,20 @@ CREATE TABLE IF NOT EXISTS knowledge_point (
   level VARCHAR(50),
   source VARCHAR(100),
   audit_status VARCHAR(20) NOT NULL DEFAULT '已发布',
+  parent_id VARCHAR(64),
+  sort_order INT NOT NULL DEFAULT 0,
   INDEX idx_knowledge_course (course_id),
   INDEX idx_knowledge_chapter (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_point' AND COLUMN_NAME = 'description');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE knowledge_point ADD COLUMN description TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_point' AND COLUMN_NAME = 'parent_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE knowledge_point ADD COLUMN parent_id VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_point' AND COLUMN_NAME = 'sort_order');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE knowledge_point ADD COLUMN sort_order INT NOT NULL DEFAULT 0', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS knowledge_chunk (
@@ -469,6 +538,42 @@ CREATE TABLE IF NOT EXISTS knowledge_chunk (
   INDEX idx_chunk_material (material_id),
   INDEX idx_chunk_knowledge (knowledge_id),
   INDEX idx_chunk_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS knowledge_relation (
+  relation_id VARCHAR(64) PRIMARY KEY,
+  source_knowledge_id VARCHAR(64) NOT NULL,
+  target_knowledge_id VARCHAR(64) NOT NULL,
+  relation_type VARCHAR(50) NOT NULL,
+  confidence FLOAT,
+  audit_status VARCHAR(20) NOT NULL DEFAULT '待审核',
+  INDEX idx_knowledge_relation_source (source_knowledge_id),
+  INDEX idx_knowledge_relation_target (target_knowledge_id),
+  INDEX idx_knowledge_relation_status (audit_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS knowledge_candidate (
+  candidate_id VARCHAR(64) PRIMARY KEY,
+  candidate_type VARCHAR(50) NOT NULL,
+  course_id VARCHAR(64) NOT NULL,
+  chapter_id VARCHAR(64),
+  material_id VARCHAR(64),
+  source_task_id VARCHAR(64),
+  name VARCHAR(100),
+  description TEXT,
+  parent_id VARCHAR(64),
+  source_knowledge_id VARCHAR(64),
+  target_knowledge_id VARCHAR(64),
+  relation_type VARCHAR(50),
+  confidence FLOAT,
+  chunk_id VARCHAR(64),
+  raw_output_json MEDIUMTEXT,
+  audit_status VARCHAR(20) NOT NULL DEFAULT '待审核',
+  created_by VARCHAR(64),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_time DATETIME,
+  INDEX idx_knowledge_candidate_course (course_id, audit_status),
+  INDEX idx_knowledge_candidate_task (source_task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS job_direction (
@@ -541,6 +646,32 @@ CREATE TABLE IF NOT EXISTS question_job_relation (
   match_level VARCHAR(50),
   UNIQUE KEY uk_question_job_tech (question_id, job_id, tech_id),
   INDEX idx_qjr_job_tech (job_id, tech_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS question_candidate (
+  candidate_id VARCHAR(64) PRIMARY KEY,
+  source_task_id VARCHAR(64),
+  material_id VARCHAR(64),
+  course_id VARCHAR(64),
+  chapter_id VARCHAR(64),
+  question_type VARCHAR(50) NOT NULL,
+  stem TEXT NOT NULL,
+  difficulty VARCHAR(50),
+  options_json MEDIUMTEXT,
+  answer TEXT,
+  answer_analysis TEXT,
+  knowledge_id VARCHAR(64),
+  job_id VARCHAR(64),
+  tech_id VARCHAR(64),
+  duplicate_status VARCHAR(50) NOT NULL DEFAULT '未发现重复',
+  raw_output_json MEDIUMTEXT,
+  audit_status VARCHAR(20) NOT NULL DEFAULT '待审核',
+  created_by VARCHAR(64),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_time DATETIME,
+  INDEX idx_question_candidate_status (audit_status),
+  INDEX idx_question_candidate_knowledge (knowledge_id),
+  INDEX idx_question_candidate_task (source_task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS practice_record (

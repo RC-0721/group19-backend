@@ -16,3 +16,14 @@ mybatis-plus:
 
 teaching:
   upload-dir: ${TEACHING_UPLOAD_DIR:data/uploads}
+  ai:
+    provider: ${TEACHING_AI_PROVIDER:mock}
+    base-url: ${TEACHING_AI_BASE_URL:https://api.deepseek.com}
+    api-key: ${TEACHING_AI_API_KEY:}
+    api-key-file: ${TEACHING_AI_API_KEY_FILE:docs/deepseekApi.txt}
+    model: ${TEACHING_AI_MODEL:deepseek-v4-flash}
+    timeout-ms: ${TEACHING_AI_TIMEOUT_MS:30000}
+    fallback-enabled: ${TEACHING_AI_FALLBACK_ENABLED:true}
+    stream-enabled: ${TEACHING_AI_STREAM_ENABLED:true}
+  homework-upload:
+    max-size-mb: ${TEACHING_HOMEWORK_UPLOAD_MAX_SIZE_MB:50}

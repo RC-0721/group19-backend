@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +21,16 @@ public class AIInterviewService {
     private static final String MODEL = "mock-ai";
 
     private final JdbcTemplate jdbcTemplate;
+    private final AiService aiService;
 
-    public AIInterviewService(JdbcTemplate jdbcTemplate) {
+    @Autowired
+    public AIInterviewService(JdbcTemplate jdbcTemplate, AiService aiService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.aiService = aiService;
+    }
+
+    AIInterviewService(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null);
     }
 
     public Map<String, Object> list(
@@ -78,17 +86,20 @@ public class AIInterviewService {
         Map<String, Object> job = requireJob(jobId);
         String sessionId = "session-" + UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
+        ChatResult question = chat(scene, "请结合" + job.get("job_name") + "方向，生成一道" + difficultyLevel + "面试开场题。",
+                actor, "请结合" + job.get("job_name") + "方向，说明你最熟悉的一项技术实践。");
         jdbcTemplate.update("""
                 INSERT INTO ai_session (session_id, student_id, job_id, scene, model, prompt_version, status, created_time)
                 VALUES (?, ?, ?, ?, ?, ?, '已创建', ?)
-                """, sessionId, actor.getAccount(), jobId, scene, MODEL, promptVersion, Timestamp.valueOf(now));
-        String firstQuestion = "请结合" + job.get("job_name") + "方向，说明你最熟悉的一项技术实践。";
-        jdbcTemplate.update("""
-                INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
-                VALUES (?, ?, ?, ?, ?, ?, '成功')
-                """, "ai-log-" + UUID.randomUUID(), scene, MODEL, promptVersion,
-                "start:" + jobId + ":" + difficultyLevel, firstQuestion);
-        return Map.of("session_id", sessionId, "status", "已创建", "first_question", firstQuestion);
+                """, sessionId, actor.getAccount(), jobId, scene, question.model(), promptVersion, Timestamp.valueOf(now));
+        if (aiService == null) {
+            jdbcTemplate.update("""
+                    INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
+                    VALUES (?, ?, ?, ?, ?, ?, '成功')
+                    """, "ai-log-" + UUID.randomUUID(), scene, MODEL, promptVersion,
+                    "start:" + jobId + ":" + difficultyLevel, question.content());
+        }
+        return Map.of("session_id", sessionId, "status", "已创建", "first_question", question.content());
     }
 
     @Transactional
@@ -107,7 +118,9 @@ public class AIInterviewService {
                 VALUES (?, ?, 'STUDENT', ?, NULL, ?)
                 """, "msg-" + UUID.randomUUID(), sessionId, content, Timestamp.valueOf(now));
         String referenceChunk = firstReferenceChunk();
-        String aiContent = "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。";
+        ChatResult reply = chat(stringValue(session.get("scene")), content, actor,
+                "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。");
+        String aiContent = reply.content();
         String aiMessageId = "msg-" + UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO ai_message (message_id, session_id, sender_type, message_content, reference_chunk, created_time)
@@ -130,11 +143,13 @@ public class AIInterviewService {
                 VALUES (?, ?, 'AI_INTERVIEW', ?, ?, ?)
                 ON DUPLICATE KEY UPDATE skill_id = VALUES(skill_id), score = VALUES(score)
                 """, "evidence-" + UUID.randomUUID(), actor.getAccount(), reportId, firstSkillId(jobId), score);
-        jdbcTemplate.update("""
-                INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
-                VALUES (?, ?, ?, ?, ?, ?, '成功')
-                """, "ai-log-" + UUID.randomUUID(), stringValue(session.get("scene")), MODEL,
-                stringValue(session.get("prompt_version")), content, aiContent);
+        if (aiService == null) {
+            jdbcTemplate.update("""
+                    INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
+                    VALUES (?, ?, ?, ?, ?, ?, '成功')
+                    """, "ai-log-" + UUID.randomUUID(), stringValue(session.get("scene")), MODEL,
+                    stringValue(session.get("prompt_version")), content, aiContent);
+        }
         return Map.of("message_id", aiMessageId, "message_content", aiContent,
                 "reference_chunk", referenceChunk, "status", "已完成");
     }
@@ -264,7 +279,18 @@ public class AIInterviewService {
         }
     }
 
+    private ChatResult chat(String scene, String prompt, User actor, String fallbackContent) {
+        if (aiService == null) {
+            return new ChatResult(MODEL, fallbackContent);
+        }
+        Map<String, Object> result = aiService.chat(Map.of("scene", scene, "prompt", prompt), actor);
+        return new ChatResult(stringValue(result.get("model")), stringValue(result.get("content")));
+    }
+
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private record ChatResult(String model, String content) {
     }
 }
