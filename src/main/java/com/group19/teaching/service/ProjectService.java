@@ -3,9 +3,12 @@ package com.group19.teaching.service;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,10 +20,21 @@ import org.springframework.util.StringUtils;
 @Service
 public class ProjectService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private static final List<String> PROJECT_TYPES = List.of("code", "architecture");
+    private static final List<String> ARCH_SCALES = List.of("S", "M", "L");
+    private static final List<String> ARCH_DIMENSIONS = List.of(
+            "需求覆盖度", "技术选型", "可扩展性", "安全性",
+            "可维护性", "成本效率", "数据设计", "部署运维"
+    );
 
-    public ProjectService(JdbcTemplate jdbcTemplate) {
+    private final JdbcTemplate jdbcTemplate;
+    private final AiService aiService;
+    private final ObjectMapper objectMapper;
+
+    public ProjectService(JdbcTemplate jdbcTemplate, AiService aiService, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
+        this.aiService = aiService;
+        this.objectMapper = objectMapper;
     }
 
     public Map<String, Object> list(
@@ -45,7 +59,8 @@ public class ProjectService {
         pageParams.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
                 SELECT DISTINCT pt.project_task_id, pt.course_id, pt.job_id, pt.title, pt.task_goal,
-                       pt.tech_requirement, pt.deliverable, pt.status
+                       pt.tech_requirement, pt.deliverable, pt.project_type, pt.arch_requirement,
+                       pt.arch_scale, pt.status
                 FROM project_task pt
                 """ + where + """
                 ORDER BY pt.project_task_id
@@ -57,6 +72,9 @@ public class ProjectService {
 
     @Transactional
     public Map<String, Object> createStandard(Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String jobId = stringValue(request.get("job_id"));
         String evaluationDimension = stringValue(request.get("evaluation_dimension"));
         String scoreLevel = stringValue(request.get("score_level"));
@@ -77,6 +95,9 @@ public class ProjectService {
 
     @Transactional
     public Map<String, Object> createRubricDimension(String standardId, Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String dimensionName = stringValue(request.get("dimension_name"));
         Double weight = doubleValue(request.get("weight"));
         String levelRule = stringValue(request.get("level_rule"));
@@ -95,15 +116,25 @@ public class ProjectService {
 
     @Transactional
     public Map<String, Object> createProject(Map<String, Object> request, User actor) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String courseId = stringValue(request.get("course_id"));
         String jobId = stringValue(request.get("job_id"));
         String taskGoal = stringValue(request.get("task_goal"));
         String techRequirement = stringValue(request.get("tech_requirement"));
         String deliverable = stringValue(request.get("deliverable"));
+        String projectType = defaultValue(stringValue(request.get("project_type")), "code");
+        String archRequirement = stringValue(request.get("arch_requirement"));
+        String archScale = defaultValue(stringValue(request.get("arch_scale")), "M");
         String status = stringValue(request.get("status"));
         if (!StringUtils.hasText(courseId) || !StringUtils.hasText(jobId) || !StringUtils.hasText(taskGoal)
                 || !StringUtils.hasText(techRequirement) || !StringUtils.hasText(deliverable)
+                || !PROJECT_TYPES.contains(projectType) || !ARCH_SCALES.contains(archScale)
                 || !List.of("草稿", "已发布").contains(status)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if ("architecture".equals(projectType) && !StringUtils.hasText(archRequirement)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         requireTeacherCourse(courseId, actor.getAccount());
@@ -111,14 +142,19 @@ public class ProjectService {
         String projectTaskId = "project-" + UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO project_task
-                  (project_task_id, course_id, job_id, title, task_goal, tech_requirement, deliverable, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, projectTaskId, courseId, jobId, taskGoal, taskGoal, techRequirement, deliverable, status);
+                  (project_task_id, course_id, job_id, title, task_goal, tech_requirement, deliverable,
+                   project_type, arch_requirement, arch_scale, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, projectTaskId, courseId, jobId, taskGoal, taskGoal, techRequirement, deliverable,
+                projectType, blankToNull(archRequirement), archScale, status);
         return Map.of("project_task_id", projectTaskId, "status", status);
     }
 
     @Transactional
     public Map<String, Object> submitProject(String projectTaskId, Map<String, Object> request, User actor) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String artifactPath = stringValue(request.get("artifact_path"));
         String description = stringValue(request.get("description"));
         if (!StringUtils.hasText(projectTaskId) || !StringUtils.hasText(artifactPath)
@@ -136,10 +172,13 @@ public class ProjectService {
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, submissionId, projectTaskId, actor.getAccount(), artifactPath, description,
                 submitStatus, Timestamp.valueOf(submitTime));
+        String aiEvaluation = "architecture".equals(stringValue(task.get("project_type")))
+                ? architectureEvaluation(task, description, actor)
+                : "待教师确认";
         jdbcTemplate.update("""
                 INSERT INTO project_evaluation (evaluation_id, submission_id, rubric_id, ai_evaluation)
                 VALUES (?, ?, ?, ?)
-                """, evaluationId, submissionId, findStandardId(stringValue(task.get("job_id"))), "待教师确认");
+                """, evaluationId, submissionId, findStandardId(stringValue(task.get("job_id"))), aiEvaluation);
         return Map.of("submission_id", submissionId, "submit_status", submitStatus, "submit_time", submitTime);
     }
 
@@ -184,6 +223,9 @@ public class ProjectService {
 
     @Transactional
     public Map<String, Object> confirmEvaluation(String evaluationId, Map<String, Object> request, User actor) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         Double teacherScore = doubleValue(request.get("teacher_score"));
         String teacherComment = stringValue(request.get("teacher_comment"));
         if (!StringUtils.hasText(evaluationId) || teacherScore == null || teacherScore < 0 || teacherScore > 100
@@ -227,7 +269,8 @@ public class ProjectService {
 
     private Map<String, Object> requirePublishedProject(String projectTaskId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT project_task_id, job_id, status
+                SELECT project_task_id, job_id, title, task_goal, tech_requirement, deliverable,
+                       project_type, arch_requirement, arch_scale, status
                 FROM project_task
                 WHERE project_task_id = ?
                 LIMIT 1
@@ -344,6 +387,87 @@ public class ProjectService {
                 LIMIT 1
                 """, jobId);
         return rows.isEmpty() ? null : stringValue(rows.get(0).get("standard_id"));
+    }
+
+    private String architectureEvaluation(Map<String, Object> task, String description, User actor) {
+        String aiSummary = "规则式评审";
+        if (aiService != null) {
+            try {
+                Map<String, Object> result = aiService.chat(Map.of(
+                        "scene", "PROJECT_ARCH_REVIEW",
+                        "system_prompt", "你是软件架构评审老师，请结合任务规模给出简短评价。",
+                        "prompt", "规模：" + stringValue(task.get("arch_scale"))
+                                + "\n要求：" + stringValue(task.get("arch_requirement"))
+                                + "\n学生提交：" + description
+                ), actor);
+                aiSummary = stringValue(result.get("content"));
+            } catch (BusinessException exception) {
+                if (exception.errorCode() != ErrorCode.AI_UNAVAILABLE) {
+                    throw exception;
+                }
+                aiSummary = "AI 评审失败，已降级为规则式评审";
+            } catch (RuntimeException exception) {
+                aiSummary = "AI 评审失败，已降级为规则式评审";
+            }
+        }
+        Map<String, Object> evaluation = new LinkedHashMap<>();
+        evaluation.put("project_type", "architecture");
+        evaluation.put("scale", stringValue(task.get("arch_scale")));
+        evaluation.put("overall_score", baseArchScore(stringValue(task.get("arch_scale")), description));
+        evaluation.put("summary", aiSummary);
+        List<Map<String, Object>> dimensions = new ArrayList<>();
+        for (String dimension : ARCH_DIMENSIONS) {
+            dimensions.add(linkedMap(
+                    "dimension", dimension,
+                    "score", dimensionScore(dimension, stringValue(task.get("arch_scale")), description),
+                    "comment", dimension + "已按" + stringValue(task.get("arch_scale")) + "规模进行评估"
+            ));
+        }
+        evaluation.put("dimensions", dimensions);
+        return json(evaluation);
+    }
+
+    private double baseArchScore(String scale, String description) {
+        double base = StringUtils.hasText(description) ? 72 : 60;
+        if ("S".equals(scale)) {
+            return base + 6;
+        }
+        if ("L".equals(scale)) {
+            return base - 4;
+        }
+        return base;
+    }
+
+    private double dimensionScore(String dimension, String scale, String description) {
+        double score = baseArchScore(scale, description);
+        if (description.contains(dimension.replace("度", ""))) {
+            score += 4;
+        }
+        return Math.max(0, Math.min(100, score));
+    }
+
+    private String json(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+    }
+
+    private String defaultValue(String value, String fallback) {
+        return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private Object blankToNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
+    }
+
+    private Map<String, Object> linkedMap(Object... values) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (int index = 0; index < values.length; index += 2) {
+            map.put(String.valueOf(values[index]), values[index + 1]);
+        }
+        return map;
     }
 
     private Double doubleValue(Object value) {

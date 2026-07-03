@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class ProjectServiceTest {
 
     private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
-    private final ProjectService projectService = new ProjectService(jdbcTemplate);
+    private final ProjectService projectService = new ProjectService(jdbcTemplate, null, new ObjectMapper());
 
     @Test
     void createStandard() {
@@ -85,7 +86,8 @@ class ProjectServiceTest {
         ), user("teacher001", "TEACHER"));
 
         verify(jdbcTemplate).update(anyString(), anyString(), eq("course-java-001"), eq("job-java-backend"),
-                eq("完成项目"), eq("完成项目"), eq("Spring Boot"), eq("代码"), eq("已发布"));
+                eq("完成项目"), eq("完成项目"), eq("Spring Boot"), eq("代码"),
+                eq("code"), eq(null), eq("M"), eq("已发布"));
         assertEquals("已发布", result.get("status"));
     }
 
@@ -94,6 +96,7 @@ class ProjectServiceTest {
         when(jdbcTemplate.queryForList(anyString(), eq("project-1"))).thenReturn(List.of(Map.of(
                 "project_task_id", "project-1",
                 "job_id", "job-java-backend",
+                "project_type", "code",
                 "status", "已发布"
         )));
         when(jdbcTemplate.queryForList(anyString(), eq("job-java-backend")))
@@ -125,6 +128,29 @@ class ProjectServiceTest {
                 ), user("student001", "STUDENT")));
 
         assertEquals(ErrorCode.STATE_NOT_ALLOWED, exception.errorCode());
+    }
+
+    @Test
+    void architectureProjectCreatesJsonEvaluation() {
+        when(jdbcTemplate.queryForList(anyString(), eq("project-arch-1"))).thenReturn(List.of(Map.of(
+                "project_task_id", "project-arch-1",
+                "job_id", "job-java-backend",
+                "project_type", "architecture",
+                "arch_requirement", "设计课程学习系统架构",
+                "arch_scale", "S",
+                "status", "已发布"
+        )));
+        when(jdbcTemplate.queryForList(anyString(), eq("job-java-backend")))
+                .thenReturn(List.of(Map.of("standard_id", "standard-1")));
+
+        Map<String, Object> result = projectService.submitProject("project-arch-1", Map.of(
+                "artifact_path", "/data/arch.md",
+                "description", "包含需求覆盖、安全性、数据设计和部署运维"
+        ), user("student001", "STUDENT"));
+
+        assertEquals("待评价", result.get("submit_status"));
+        verify(jdbcTemplate).update(anyString(), anyString(), anyString(), eq("standard-1"),
+                org.mockito.ArgumentMatchers.contains("\"dimensions\""));
     }
 
     @Test

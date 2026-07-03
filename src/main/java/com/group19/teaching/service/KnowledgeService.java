@@ -336,6 +336,125 @@ public class KnowledgeService {
         return Map.of("knowledge_id", knowledgeId, "status", status);
     }
 
+    public Map<String, Object> knowledgeGraph(String courseId, User actor) {
+        if (StringUtils.hasText(courseId)) {
+            requireCourseAccess(courseId, actor);
+        }
+        List<Object> nodeParams = new ArrayList<>();
+        String nodeWhere = graphNodeWhere(courseId, actor, nodeParams);
+        List<Map<String, Object>> nodes = jdbcTemplate.queryForList("""
+                SELECT kp.knowledge_id AS id, kp.name AS label, 'knowledge' AS node_type,
+                       kp.course_id, c.course_name, kp.chapter_id, ch.chapter_name,
+                       kp.level, kp.source, kp.parent_id, kp.sort_order
+                FROM knowledge_point kp
+                LEFT JOIN course c ON kp.course_id = c.course_id
+                LEFT JOIN chapter ch ON kp.chapter_id = ch.chapter_id
+                """ + nodeWhere + """
+                ORDER BY kp.course_id, kp.sort_order, kp.knowledge_id
+                """, nodeParams.toArray());
+
+        List<Object> edgeParams = new ArrayList<>();
+        String edgeWhere = graphEdgeWhere(courseId, actor, edgeParams);
+        List<Map<String, Object>> edges = jdbcTemplate.queryForList("""
+                SELECT kr.relation_id AS id, kr.source_knowledge_id AS source,
+                       kr.target_knowledge_id AS target, kr.relation_type, kr.confidence
+                FROM knowledge_relation kr
+                JOIN knowledge_point s ON kr.source_knowledge_id = s.knowledge_id
+                JOIN knowledge_point t ON kr.target_knowledge_id = t.knowledge_id
+                """ + edgeWhere + """
+                ORDER BY kr.relation_type, kr.relation_id
+                """, edgeParams.toArray());
+
+        return Map.of("nodes", nodes, "edges", edges);
+    }
+
+    public Map<String, Object> studentKnowledgeGraph(String studentId, User actor) {
+        if (!StringUtils.hasText(studentId)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        requireStudentGraphAccess(studentId, actor);
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+
+        nodes.addAll(jdbcTemplate.queryForList("""
+                SELECT sp.student_id AS id, u.name AS label, 'student' AS node_type,
+                       sp.major_id, sp.class_id
+                FROM student_profile sp
+                LEFT JOIN sys_user u ON sp.user_id = u.account
+                WHERE sp.student_id = ?
+                """, studentId));
+        nodes.addAll(jdbcTemplate.queryForList("""
+                SELECT CONCAT('profile:', ap.profile_id) AS id, ap.profile_status AS label,
+                       'ability_profile' AS node_type, ap.profile_id, ap.student_id,
+                       ap.job_id, jd.job_name
+                FROM ability_profile ap
+                LEFT JOIN job_direction jd ON ap.job_id = jd.job_id
+                WHERE ap.student_id = ?
+                """, studentId));
+        nodes.addAll(jdbcTemplate.queryForList("""
+                SELECT DISTINCT jd.job_id AS id, jd.job_name AS label, 'job' AS node_type,
+                       jd.difficulty_level, jd.status
+                FROM student_profile sp
+                JOIN job_direction jd ON COALESCE(NULLIF(sp.target_job_id, ''), 'job-java-backend') = jd.job_id
+                WHERE sp.student_id = ?
+                """, studentId));
+        nodes.addAll(jdbcTemplate.queryForList("""
+                SELECT DISTINCT c.course_id AS id, c.course_name AS label, 'course' AS node_type,
+                       c.major_id, c.course_type, c.status
+                FROM course c
+                JOIN course_class cc ON c.course_id = cc.course_id
+                JOIN student_profile sp ON cc.class_id = sp.class_id
+                WHERE sp.student_id = ? AND c.status = '已发布'
+                """, studentId));
+        nodes.addAll(jdbcTemplate.queryForList("""
+                SELECT kp.knowledge_id AS id, kp.name AS label, 'knowledge' AS node_type,
+                       kp.course_id, kp.chapter_id, kp.level, kp.audit_status
+                FROM knowledge_point kp
+                JOIN course_class cc ON kp.course_id = cc.course_id
+                JOIN student_profile sp ON cc.class_id = sp.class_id
+                WHERE sp.student_id = ? AND kp.audit_status = '已发布'
+                ORDER BY kp.course_id, kp.sort_order, kp.knowledge_id
+                """, studentId));
+
+        edges.addAll(jdbcTemplate.queryForList("""
+                SELECT CONCAT('student-job:', sp.student_id, ':', jd.job_id) AS id,
+                       sp.student_id AS source, jd.job_id AS target, 'target_job' AS relation_type
+                FROM student_profile sp
+                JOIN job_direction jd ON COALESCE(NULLIF(sp.target_job_id, ''), 'job-java-backend') = jd.job_id
+                WHERE sp.student_id = ?
+                """, studentId));
+        edges.addAll(jdbcTemplate.queryForList("""
+                SELECT CONCAT('student-profile:', ap.profile_id) AS id, ap.student_id AS source,
+                       CONCAT('profile:', ap.profile_id) AS target, 'ability_profile' AS relation_type
+                FROM ability_profile ap
+                WHERE ap.student_id = ?
+                """, studentId));
+        edges.addAll(jdbcTemplate.queryForList("""
+                SELECT DISTINCT CONCAT('student-course:', sp.student_id, ':', c.course_id) AS id,
+                       sp.student_id AS source, c.course_id AS target, 'enrolled_course' AS relation_type
+                FROM course c
+                JOIN course_class cc ON c.course_id = cc.course_id
+                JOIN student_profile sp ON cc.class_id = sp.class_id
+                WHERE sp.student_id = ? AND c.status = '已发布'
+                """, studentId));
+        edges.addAll(jdbcTemplate.queryForList("""
+                SELECT CONCAT('course-knowledge:', kp.course_id, ':', kp.knowledge_id) AS id,
+                       kp.course_id AS source, kp.knowledge_id AS target, 'contains' AS relation_type
+                FROM knowledge_point kp
+                JOIN course_class cc ON kp.course_id = cc.course_id
+                JOIN student_profile sp ON cc.class_id = sp.class_id
+                WHERE sp.student_id = ? AND kp.audit_status = '已发布'
+                """, studentId));
+        edges.addAll(jdbcTemplate.queryForList("""
+                SELECT ae.evidence_id AS id, ae.student_id AS source, ae.knowledge_id AS target,
+                       ae.source_type AS relation_type, ae.score
+                FROM ability_evidence ae
+                WHERE ae.student_id = ? AND ae.knowledge_id IS NOT NULL
+                """, studentId));
+
+        return Map.of("nodes", nodes, "edges", edges);
+    }
+
     public Map<String, Object> answer(String courseId, String chapterId, String questionText, User actor) {
         if (!StringUtils.hasText(courseId) || !StringUtils.hasText(chapterId) || !StringUtils.hasText(questionText)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
@@ -444,6 +563,24 @@ public class KnowledgeService {
         }
     }
 
+    private String graphNodeWhere(String courseId, User actor, List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE kp.audit_status = '已发布'\n");
+        append(where, params, "kp.course_id", courseId);
+        appendCourseScope(where, params, "kp.course_id", actor);
+        return where.toString();
+    }
+
+    private String graphEdgeWhere(String courseId, User actor, List<Object> params) {
+        StringBuilder where = new StringBuilder("""
+                WHERE kr.audit_status = '已发布'
+                  AND s.audit_status = '已发布'
+                  AND t.audit_status = '已发布'
+                """);
+        append(where, params, "s.course_id", courseId);
+        appendCourseScope(where, params, "s.course_id", actor);
+        return where.toString();
+    }
+
     private void requireTeacherCourse(String courseId, User actor) {
         if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
             return;
@@ -451,6 +588,39 @@ public class KnowledgeService {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM course_class WHERE course_id = ? AND teacher_id = ?",
                 Integer.class, courseId, actor.getAccount());
+        if (count == null || count == 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private void requireCourseAccess(String courseId, User actor) {
+        requireCourse(courseId);
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return;
+        }
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            requireTeacherCourse(courseId, actor);
+            return;
+        }
+        requireStudentCourse(courseId, actor);
+    }
+
+    private void requireStudentGraphAccess(String studentId, User actor) {
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return;
+        }
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            if (!studentId.equals(actor.getAccount())) {
+                throw new BusinessException(ErrorCode.FORBIDDEN);
+            }
+            return;
+        }
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM student_profile sp
+                JOIN course_class cc ON sp.class_id = cc.class_id
+                WHERE sp.student_id = ? AND cc.teacher_id = ?
+                """, Integer.class, studentId, actor.getAccount());
         if (count == null || count == 0) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }

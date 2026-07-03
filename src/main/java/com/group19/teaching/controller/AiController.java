@@ -6,6 +6,7 @@ import com.group19.teaching.service.AiContentService;
 import com.group19.teaching.service.AiService;
 import com.group19.teaching.service.AiTaskService;
 import com.group19.teaching.service.AuthService;
+import com.group19.teaching.service.TeachingAiEnhancementService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,16 +24,19 @@ public class AiController {
     private final AiService aiService;
     private final AiTaskService aiTaskService;
     private final AiContentService aiContentService;
+    private final TeachingAiEnhancementService teachingAiEnhancementService;
     private final AuthService authService;
 
     public AiController(
             AiService aiService,
             AiTaskService aiTaskService,
             AiContentService aiContentService,
+            TeachingAiEnhancementService teachingAiEnhancementService,
             AuthService authService) {
         this.aiService = aiService;
         this.aiTaskService = aiTaskService;
         this.aiContentService = aiContentService;
+        this.teachingAiEnhancementService = teachingAiEnhancementService;
         this.authService = authService;
     }
 
@@ -152,5 +156,49 @@ public class AiController {
             @PathVariable String id) {
         User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
         return ApiResponse.success(aiContentService.rejectQuestionCandidate(id, actor));
+    }
+
+    @PostMapping("/api/ai/pre-task-candidates")
+    public ApiResponse<Map<String, Object>> generatePreTaskCandidates(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(teachingAiEnhancementService.generatePreTaskCandidates(request, actor));
+    }
+
+    @GetMapping("/api/ai/pre-task-candidates")
+    public ApiResponse<Map<String, Object>> listPreTaskCandidates(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "audit_status", required = false) String auditStatus,
+            @RequestParam(value = "page_no", defaultValue = "1") Integer pageNo,
+            @RequestParam(value = "page_size", defaultValue = "20") Integer pageSize) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(teachingAiEnhancementService.listPreTaskCandidates(
+                courseClassId, auditStatus, pageNo, pageSize, actor));
+    }
+
+    @PostMapping("/api/ai/practice-recommendations")
+    public ApiResponse<Map<String, Object>> practiceRecommendations(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(teachingAiEnhancementService.recommendPractice(request, actor));
+    }
+
+    @PostMapping("/api/ai/material-audits")
+    public ApiResponse<Map<String, Object>> auditMaterial(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(teachingAiEnhancementService.auditMaterial(request, actor));
+    }
+
+    @PostMapping("/api/ai/content-scores")
+    public ApiResponse<Map<String, Object>> scoreContent(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(teachingAiEnhancementService.scoreContent(request, actor));
     }
 }

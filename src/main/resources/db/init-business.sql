@@ -64,6 +64,41 @@ SET @sql = IF(@column_exists = 0, 'ALTER TABLE course ADD COLUMN credit DECIMAL(
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 UPDATE course SET course_code = course_id WHERE course_code IS NULL OR course_code = '';
 
+CREATE TABLE IF NOT EXISTS training_plan (
+  plan_id VARCHAR(64) PRIMARY KEY,
+  major_id VARCHAR(64) NOT NULL,
+  plan_name VARCHAR(100) NOT NULL,
+  total_credits DECIMAL(6,2) NOT NULL DEFAULT 0,
+  version VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT '草稿',
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_training_plan_major_version (major_id, version),
+  INDEX idx_training_plan_major_status (major_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS training_plan_course (
+  id VARCHAR(64) PRIMARY KEY,
+  plan_id VARCHAR(64) NOT NULL,
+  course_id VARCHAR(64) NOT NULL,
+  is_required BOOLEAN NOT NULL DEFAULT TRUE,
+  suggested_semester INT NOT NULL,
+  credit DECIMAL(5,2) NOT NULL DEFAULT 0,
+  UNIQUE KEY uk_training_plan_course (plan_id, course_id),
+  INDEX idx_training_plan_course_plan (plan_id, suggested_semester),
+  INDEX idx_training_plan_course_course (course_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS course_prerequisite (
+  id VARCHAR(64) PRIMARY KEY,
+  course_id VARCHAR(64) NOT NULL,
+  prerequisite_course_id VARCHAR(64) NOT NULL,
+  relation_note TEXT,
+  UNIQUE KEY uk_course_prerequisite (course_id, prerequisite_course_id),
+  INDEX idx_course_prerequisite_course (course_id),
+  INDEX idx_course_prerequisite_pre (prerequisite_course_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS teaching_standard (
   standard_id VARCHAR(64) PRIMARY KEY,
   major_id VARCHAR(64),
@@ -234,6 +269,51 @@ CREATE TABLE IF NOT EXISTS pre_task_submit (
   INDEX idx_pre_task_submit_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS pre_task_candidate (
+  candidate_id VARCHAR(64) PRIMARY KEY,
+  course_class_id VARCHAR(64) NOT NULL,
+  course_id VARCHAR(64) NOT NULL,
+  material_id VARCHAR(64),
+  title VARCHAR(200) NOT NULL,
+  task_type VARCHAR(50) NOT NULL DEFAULT '课前任务',
+  deadline_suggestion DATETIME,
+  raw_output_json MEDIUMTEXT,
+  audit_status VARCHAR(20) NOT NULL DEFAULT '待审核',
+  created_by VARCHAR(64),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_time DATETIME,
+  INDEX idx_pre_task_candidate_class_status (course_class_id, audit_status),
+  INDEX idx_pre_task_candidate_course (course_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS material_ai_audit (
+  audit_id VARCHAR(64) PRIMARY KEY,
+  material_id VARCHAR(64) NOT NULL,
+  category VARCHAR(100),
+  difficulty VARCHAR(50),
+  applicable_course VARCHAR(64),
+  inappropriate_content TEXT,
+  format_risk VARCHAR(100),
+  copyright_risk VARCHAR(100),
+  audit_result_json MEDIUMTEXT,
+  created_by VARCHAR(64),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_material_ai_audit_material (material_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS content_score (
+  score_id VARCHAR(64) PRIMARY KEY,
+  source_type VARCHAR(50) NOT NULL,
+  source_id VARCHAR(64) NOT NULL,
+  quality_score FLOAT NOT NULL,
+  abnormal_flag VARCHAR(20) NOT NULL,
+  ai_explanation TEXT,
+  created_by VARCHAR(64),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_content_score_source (source_type, source_id),
+  INDEX idx_content_score_flag (abnormal_flag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS homework (
   homework_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
@@ -272,12 +352,40 @@ CREATE TABLE IF NOT EXISTS homework_submit (
   submit_id VARCHAR(64) PRIMARY KEY,
   homework_id VARCHAR(64) NOT NULL,
   student_id VARCHAR(64) NOT NULL,
-  submit_content TEXT NOT NULL,
-  attachment_path VARCHAR(500) NOT NULL,
+  submit_content TEXT,
+  attachment_path VARCHAR(500),
   submit_status VARCHAR(20) NOT NULL DEFAULT '待批改',
   submit_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_homework_submit_homework (homework_id),
   INDEX idx_homework_submit_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE homework_submit MODIFY COLUMN submit_content TEXT NULL;
+ALTER TABLE homework_submit MODIFY COLUMN attachment_path VARCHAR(500) NULL;
+
+CREATE TABLE IF NOT EXISTS homework_upload_file (
+  file_id VARCHAR(64) PRIMARY KEY,
+  homework_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(50) NOT NULL,
+  file_size BIGINT NOT NULL,
+  storage_path VARCHAR(500) NOT NULL,
+  bind_status VARCHAR(20) NOT NULL DEFAULT '未绑定',
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_hw_upload_homework_student (homework_id, student_id, bind_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS homework_attachment (
+  attachment_id VARCHAR(64) PRIMARY KEY,
+  submit_id VARCHAR(64) NOT NULL,
+  file_id VARCHAR(64),
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(50) NOT NULL,
+  file_size BIGINT NOT NULL,
+  storage_path VARCHAR(500) NOT NULL,
+  INDEX idx_hw_attachment_submit (submit_id),
+  INDEX idx_hw_attachment_file (file_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS homework_review (
@@ -291,6 +399,21 @@ CREATE TABLE IF NOT EXISTS homework_review (
   INDEX idx_homework_review_submit (submit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS homework_appeal (
+  appeal_id VARCHAR(64) PRIMARY KEY,
+  homework_id VARCHAR(64) NOT NULL,
+  submit_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  reason TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT '申诉中',
+  teacher_id VARCHAR(64),
+  verdict TEXT,
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_time DATETIME,
+  INDEX idx_homework_appeal_submit_status (submit_id, status),
+  INDEX idx_homework_appeal_homework (homework_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS project_task (
   project_task_id VARCHAR(64) PRIMARY KEY,
   course_id VARCHAR(64) NOT NULL,
@@ -299,6 +422,9 @@ CREATE TABLE IF NOT EXISTS project_task (
   task_goal TEXT,
   tech_requirement TEXT,
   deliverable TEXT,
+  project_type VARCHAR(20) NOT NULL DEFAULT 'code',
+  arch_requirement TEXT,
+  arch_scale VARCHAR(5) NOT NULL DEFAULT 'M',
   status VARCHAR(20) NOT NULL DEFAULT '已发布',
   INDEX idx_project_task_course (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -315,10 +441,21 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'deliverable');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN deliverable TEXT', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'project_type');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN project_type VARCHAR(20) NOT NULL DEFAULT ''code''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'arch_requirement');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN arch_requirement TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_task' AND COLUMN_NAME = 'arch_scale');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE project_task ADD COLUMN arch_scale VARCHAR(5) NOT NULL DEFAULT ''M''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 UPDATE project_task SET job_id = 'job-java-backend' WHERE job_id IS NULL;
 UPDATE project_task SET task_goal = title WHERE task_goal IS NULL;
 UPDATE project_task SET tech_requirement = '使用 Spring Boot 完成后端接口闭环' WHERE tech_requirement IS NULL;
 UPDATE project_task SET deliverable = '接口代码、说明文档和验证结果' WHERE deliverable IS NULL;
+UPDATE project_task SET project_type = 'code' WHERE project_type IS NULL OR project_type = '';
+UPDATE project_task SET arch_scale = 'M' WHERE arch_scale IS NULL OR arch_scale = '';
 
 CREATE TABLE IF NOT EXISTS enterprise_project_standard (
   standard_id VARCHAR(64) PRIMARY KEY,
@@ -706,8 +843,8 @@ INSERT INTO ai_config (config_id, model_name, prompt_version, timeout_ms, fallba
 ON DUPLICATE KEY UPDATE config_id = config_id;
 
 INSERT INTO major (major_id, major_name, major_code, major_category, training_program_id, description, status) VALUES
-  ('major-cs', '计算机科学与技术', 'CS', '计算机类', NULL, '面向软件开发、数据处理和后端工程能力培养的示例专业。', '启用')
-ON DUPLICATE KEY UPDATE major_name=VALUES(major_name), major_code=VALUES(major_code), major_category=VALUES(major_category), description=VALUES(description), status=VALUES(status);
+  ('major-cs', '计算机科学与技术', 'CS', '计算机类', 'training-plan-cs-2026', '面向软件开发、数据处理和后端工程能力培养的示例专业。', '启用')
+ON DUPLICATE KEY UPDATE major_name=VALUES(major_name), major_code=VALUES(major_code), major_category=VALUES(major_category), training_program_id=VALUES(training_program_id), description=VALUES(description), status=VALUES(status);
 
 INSERT INTO course (course_id, course_name, course_code, major_id, credit, course_type, course_goal, standard_id, status) VALUES
   ('course-java-001', 'Java 后端就业能力课程', 'JAVA-BACKEND-001', 'major-cs', 3.0, '就业实训', '面向计软本科生就业准备，覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识。', 'standard-java-backend', '已发布')
@@ -732,8 +869,18 @@ ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), student_no=VALUES(student_no), 
 INSERT INTO chapter (chapter_id, course_id, parent_id, chapter_name, sort_order, status) VALUES
   ('chapter-java-001', 'course-java-001', NULL, 'Java 基础与面向对象', '1', '启用'),
   ('chapter-db-001', 'course-java-001', NULL, '数据库与缓存基础', '2', '启用'),
-  ('chapter-cs-001', 'course-java-001', NULL, '计算机基础与网络', '3', '启用')
+  ('chapter-cs-001', 'course-java-001', NULL, '计算机基础与网络', '3', '启用'),
+  ('chapter-java-framework-001', 'course-java-001', NULL, 'Spring Boot 与接口开发', '4', '启用'),
+  ('chapter-java-project-001', 'course-java-001', NULL, '后端项目交付实践', '5', '启用')
 ON DUPLICATE KEY UPDATE chapter_name=VALUES(chapter_name), sort_order=VALUES(sort_order), status=VALUES(status);
+
+INSERT INTO training_plan (plan_id, major_id, plan_name, total_credits, version, status) VALUES
+  ('training-plan-cs-2026', 'major-cs', '计算机科学与技术 2026 级就业能力培养方案', 3.0, '2026', '启用')
+ON DUPLICATE KEY UPDATE plan_name=VALUES(plan_name), total_credits=VALUES(total_credits), status=VALUES(status), updated_time=CURRENT_TIMESTAMP;
+
+INSERT INTO training_plan_course (id, plan_id, course_id, is_required, suggested_semester, credit) VALUES
+  ('tpc-cs-java-001', 'training-plan-cs-2026', 'course-java-001', TRUE, 1, 3.0)
+ON DUPLICATE KEY UPDATE is_required=VALUES(is_required), suggested_semester=VALUES(suggested_semester), credit=VALUES(credit);
 
 INSERT INTO course_material (material_id, course_id, chapter_id, file_name, file_type, storage_path, parse_status) VALUES
   ('material-jg-001', 'course-java-001', 'chapter-java-001', 'JavaGuide Java 基础题目', 'markdown', 'data/Apache-2.0/JavaGuide/docs/java', '已发布'),
@@ -753,9 +900,9 @@ INSERT INTO homework (homework_id, course_id, course_class_id, chapter_id, title
   ('hw-java-001', 'course-java-001', 'class-java-001', 'chapter-java-001', 'Java 基础简答题练习', '围绕课程资料完成简答题作业。', '内容完整、表达清晰，教师确认分为最终分。', '2099-12-31 23:59:59', '已发布')
 ON DUPLICATE KEY UPDATE title=VALUES(title), course_class_id=VALUES(course_class_id), submit_requirement=VALUES(submit_requirement), scoring_standard=VALUES(scoring_standard), deadline=VALUES(deadline), status=VALUES(status);
 
-INSERT INTO project_task (project_task_id, course_id, job_id, title, task_goal, tech_requirement, deliverable, status) VALUES
-  ('project-java-001', 'course-java-001', 'job-java-backend', 'Spring Boot 课程问答 API 最小项目', '完成课程问答 API 最小闭环', '使用 Spring Boot 实现接口、鉴权和数据落库', '接口代码、说明文档和验证结果', '已发布')
-ON DUPLICATE KEY UPDATE job_id=VALUES(job_id), title=VALUES(title), task_goal=VALUES(task_goal), tech_requirement=VALUES(tech_requirement), deliverable=VALUES(deliverable), status=VALUES(status);
+INSERT INTO project_task (project_task_id, course_id, job_id, title, task_goal, tech_requirement, deliverable, project_type, arch_requirement, arch_scale, status) VALUES
+  ('project-java-001', 'course-java-001', 'job-java-backend', 'Spring Boot 课程问答 API 最小项目', '完成课程问答 API 最小闭环', '使用 Spring Boot 实现接口、鉴权和数据落库', '接口代码、说明文档和验证结果', 'code', NULL, 'M', '已发布')
+ON DUPLICATE KEY UPDATE job_id=VALUES(job_id), title=VALUES(title), task_goal=VALUES(task_goal), tech_requirement=VALUES(tech_requirement), deliverable=VALUES(deliverable), project_type=VALUES(project_type), arch_requirement=VALUES(arch_requirement), arch_scale=VALUES(arch_scale), status=VALUES(status);
 
 INSERT INTO knowledge_point (knowledge_id, course_id, chapter_id, name, description, level, source, audit_status) VALUES
   ('kp-001', 'course-java-001', 'chapter-java-001', 'Java 基础', 'Java 语言特点、字节码和基础语法。', '基础', 'JavaGuide', '已发布'),
@@ -772,6 +919,14 @@ INSERT INTO knowledge_chunk (chunk_id, material_id, knowledge_id, chunk_text, em
   ('chunk-jg-001', 'material-jg-001', 'kp-001', 'Java 基础课程资料覆盖 Java 语言特点、字节码、面向对象、集合和并发等核心知识。', NULL, 'v1', '已发布'),
   ('chunk-jg-002', 'material-jg-002', 'kp-006', '数据库课程资料覆盖 MySQL 基础、字段类型、事务、索引和 Redis 缓存等核心知识。', NULL, 'v1', '已发布')
 ON DUPLICATE KEY UPDATE chunk_text=VALUES(chunk_text), knowledge_id=VALUES(knowledge_id), version=VALUES(version), status=VALUES(status);
+
+INSERT INTO knowledge_relation (relation_id, source_knowledge_id, target_knowledge_id, relation_type, confidence, audit_status) VALUES
+  ('kr-java-001', 'kp-001', 'kp-002', 'related', 0.90, '已发布'),
+  ('kr-java-002', 'kp-002', 'kp-003', 'prerequisite', 0.88, '已发布'),
+  ('kr-java-003', 'kp-003', 'kp-005', 'related', 0.82, '已发布'),
+  ('kr-java-004', 'kp-006', 'kp-007', 'related', 0.85, '已发布'),
+  ('kr-java-005', 'kp-008', 'kp-006', 'prerequisite', 0.70, '已发布')
+ON DUPLICATE KEY UPDATE relation_type=VALUES(relation_type), confidence=VALUES(confidence), audit_status=VALUES(audit_status);
 
 INSERT INTO job_direction (job_id, job_name, job_description, difficulty_level, status) VALUES
   ('job-java-backend', 'Java 后端开发工程师', '面向 Java Web、数据库、缓存、网络和后端框架的就业方向。', '初中级', '启用')
@@ -801,6 +956,17 @@ INSERT INTO job_skill_standard (skill_id, job_id, tech_id, skill_name, ability_l
   ('skill-java-004', 'job-java-backend', 'tech-005', '缓存与性能优化', '进阶', '能说明 Redis 常见数据结构、缓存使用场景和一致性风险'),
   ('skill-java-005', 'job-java-backend', 'tech-006', 'HTTP 与接口设计', '基础', '能设计 REST 接口，说明鉴权、状态码和联调验证结果')
 ON DUPLICATE KEY UPDATE ability_level=VALUES(ability_level), evidence_requirement=VALUES(evidence_requirement);
+
+INSERT INTO ability_profile (profile_id, student_id, job_id, profile_status, knowledge_mastery, skill_mastery, updated_time)
+SELECT CONCAT('profile-', sp.student_id, '-', COALESCE(NULLIF(sp.target_job_id, ''), 'job-java-backend')),
+       sp.student_id,
+       COALESCE(NULLIF(sp.target_job_id, ''), 'job-java-backend'),
+       '数据不足',
+       '{}',
+       '{}',
+       NOW()
+FROM student_profile sp
+ON DUPLICATE KEY UPDATE profile_status=VALUES(profile_status), updated_time=VALUES(updated_time);
 
 INSERT INTO question (question_id, source_id, source_path, source_url, question_type, stem, difficulty, answer, answer_analysis, audit_status) VALUES
   ('jg-q-001', 'source-javaguide', 'docs/java/basis/java-basic-questions-01.md', 'https://github.com/Snailclimb/JavaGuide/blob/main/docs/java/basis/java-basic-questions-01.md', '简答题', 'Java 语言有哪些特点？', '中等', '1. 简单易学（语法简单，上手容易）； 2. 面向对象（封装，继承，多态）； 3. 平台无关性（Java 虚拟机实现平台无关性）； 4. 支持多线程（C++ 语言没有内置的多线程机制，因此必须调用操作系统的多线程功能来进行多线程程序设计，而 Java 语言却提供了多线程支持）； 5. 可靠性（具备异常处理和自动内存管理机制）； 6. 安全性（Java 语言本身的设计就提供了多重安全防护机制如访问权限修饰符、限制程序直接访问操作系统资源）； 7. 高效性（通过 Just In Time 编译器等技术的优化，Java 语言的运行效率还是非常不错的）； 8. 支持网络编程并且很方便； 9. 编译与解释并存； 10. …… > **🐛 修正（参见：[issue#544](https://github.com/Snailclimb/JavaGuide/issues/544)）**：C++11 开始（2011 年的时候），C++ 就引入了多线程库，在 Windows、Linux、macOS 都可以使用 `std::thread` 和 `std::async` 来创建线程。参考链接： 🌈 拓展一', '1. 简单易学（语法简单，上手容易）； 2. 面向对象（封装，继承，多态）； 3. 平台无关性（Java 虚拟机实现平台无关性）； 4. 支持多线程（C++ 语言没有内置的多线程机制，因此必须调用操作系统的多线程功能来进行多线程程序设计，而 Java 语言却提供了多线程支持）； 5. 可靠性（具备异常处理和自动内存管理机制）； 6. 安全性（Java 语言本身的设计就提供了多重安全防护机制如访问权限修饰符、限制程序直接访问操作系统资源）； 7. 高效性（通过 Just In Time 编译器等技术的优化，Java 语言的运行效率还是非常不错的）； 8. 支持网络编程并且很方便； 9. 编译与解释并存； 10. …… > **🐛 修正（参见：[issue#544](https://github.com/Snailclimb/JavaGuide/issues/544)）**：C++11 开始（2011 年的时候），C++ 就引入了多线程库，在 Windows、Linux、macOS 都可以使用 `std::thread` 和 `std::async` 来创建线程。参考链接： 🌈 拓展一', '已发布'),

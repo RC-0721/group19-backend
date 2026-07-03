@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 public class HomeworkController {
@@ -54,6 +55,15 @@ public class HomeworkController {
         return ApiResponse.success(homeworkService.submit(homeworkId, request, actor));
     }
 
+    @PostMapping("/api/homeworks/{homeworkId}/files")
+    public ApiResponse<Map<String, Object>> uploadFile(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String homeworkId,
+            @RequestParam("file") MultipartFile file) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return ApiResponse.success(homeworkService.uploadFile(homeworkId, file, actor));
+    }
+
     @GetMapping("/api/homeworks/{homeworkId}/submits")
     public ApiResponse<Map<String, Object>> listSubmits(
             @RequestHeader(value = "token", required = false) String token,
@@ -72,5 +82,23 @@ public class HomeworkController {
             @RequestBody Map<String, Object> request) {
         User actor = authService.requireRole(token, "TEACHER");
         return ApiResponse.success(homeworkService.review(reviewId, request, actor));
+    }
+
+    @PostMapping("/api/homework-submits/{submitId}/appeals")
+    public ApiResponse<Map<String, Object>> appeal(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String submitId,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return ApiResponse.success(homeworkService.appeal(submitId, request, actor));
+    }
+
+    @PutMapping("/api/homework-appeals/{appealId}")
+    public ApiResponse<Map<String, Object>> reviewAppeal(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String appealId,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "TEACHER");
+        return ApiResponse.success(homeworkService.reviewAppeal(appealId, request, actor));
     }
 }

@@ -172,6 +172,37 @@ class KnowledgeControllerTest {
     }
 
     @Test
+    void knowledgeGraphReturnsNodesAndEdges() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(knowledgeService.knowledgeGraph("course-java-001", teacher)).thenReturn(Map.of(
+                "nodes", List.of(Map.of("id", "kp-001", "label", "Java 基础")),
+                "edges", List.of(Map.of("id", "kr-001", "source", "kp-001", "target", "kp-002"))
+        ));
+
+        mockMvc.perform(get("/api/knowledge-graph/course/course-java-001")
+                        .header("token", "teacher-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes[0].id").value("kp-001"))
+                .andExpect(jsonPath("$.data.edges[0].id").value("kr-001"));
+    }
+
+    @Test
+    void studentKnowledgeGraphReturnsProfileNodes() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(knowledgeService.studentKnowledgeGraph("student001", student)).thenReturn(Map.of(
+                "nodes", List.of(Map.of("id", "student001", "node_type", "student")),
+                "edges", List.of()
+        ));
+
+        mockMvc.perform(get("/api/knowledge-graph/student/student001")
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nodes[0].id").value("student001"));
+    }
+
+    @Test
     void qaReturnsApprovedReference() throws Exception {
         User student = user("student001", "STUDENT");
         when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);

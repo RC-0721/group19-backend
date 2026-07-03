@@ -115,6 +115,30 @@ public class KnowledgeController {
         return ApiResponse.success(knowledgeService.updateKnowledgePoint(knowledgeId, request, actor));
     }
 
+    @GetMapping("/api/knowledge-graph")
+    public ApiResponse<Map<String, Object>> knowledgeGraph(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "course_id", required = false) String courseId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(knowledgeService.knowledgeGraph(courseId, actor));
+    }
+
+    @GetMapping("/api/knowledge-graph/course/{courseId}")
+    public ApiResponse<Map<String, Object>> courseKnowledgeGraph(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String courseId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(knowledgeService.knowledgeGraph(courseId, actor));
+    }
+
+    @GetMapping("/api/knowledge-graph/student/{studentId}")
+    public ApiResponse<Map<String, Object>> studentKnowledgeGraph(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String studentId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(knowledgeService.studentKnowledgeGraph(studentId, actor));
+    }
+
     @PostMapping("/api/knowledge/chunks/{chunkId}/audit")
     public ApiResponse<Map<String, Object>> auditChunk(
             @RequestHeader(value = "token", required = false) String token,

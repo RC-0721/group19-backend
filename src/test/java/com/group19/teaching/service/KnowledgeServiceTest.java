@@ -94,6 +94,38 @@ class KnowledgeServiceTest {
     }
 
     @Test
+    void knowledgeGraphReturnsNodesAndEdgesForCourse() {
+        User teacher = user("teacher001", "TEACHER");
+        when(jdbcTemplate.queryForObject(contains("FROM course WHERE"), eq(Integer.class), eq("course-java-001"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(contains("teacher_id = ?"), eq(Integer.class),
+                eq("course-java-001"), eq("teacher001"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(contains("FROM knowledge_point kp"),
+                eq("course-java-001"), eq("teacher001"))).thenReturn(List.of(Map.of(
+                "id", "kp-001",
+                "label", "Java 基础"
+        )));
+        when(jdbcTemplate.queryForList(contains("FROM knowledge_relation kr"),
+                eq("course-java-001"), eq("teacher001"))).thenReturn(List.of(Map.of(
+                "id", "kr-001",
+                "source", "kp-001",
+                "target", "kp-002"
+        )));
+
+        Map<String, Object> result = knowledgeService.knowledgeGraph("course-java-001", teacher);
+
+        assertEquals(1, ((List<?>) result.get("nodes")).size());
+        assertEquals(1, ((List<?>) result.get("edges")).size());
+    }
+
+    @Test
+    void studentKnowledgeGraphRejectsOtherStudent() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> knowledgeService.studentKnowledgeGraph("student002", user("student001", "STUDENT")));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
+    }
+
+    @Test
     void auditChunkPublishesChunkAndMaterial() {
         when(jdbcTemplate.queryForList(anyString(), eq("chunk-1"))).thenReturn(List.of(Map.of(
                 "chunk_id", "chunk-1",

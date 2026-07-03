@@ -15,6 +15,7 @@ import com.group19.teaching.service.AiContentService;
 import com.group19.teaching.service.AiService;
 import com.group19.teaching.service.AiTaskService;
 import com.group19.teaching.service.AuthService;
+import com.group19.teaching.service.TeachingAiEnhancementService;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,9 @@ class AiControllerTest {
 
     @MockBean
     private AiContentService aiContentService;
+
+    @MockBean
+    private TeachingAiEnhancementService teachingAiEnhancementService;
 
     @MockBean
     private AuthService authService;

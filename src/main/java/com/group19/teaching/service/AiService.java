@@ -35,6 +35,9 @@ public class AiService {
     }
 
     public Map<String, Object> chat(Map<String, Object> request, User actor) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String scene = stringValue(request.get("scene"));
         String prompt = stringValue(request.get("prompt"));
         String systemPrompt = stringValue(request.get("system_prompt"));
@@ -86,6 +89,9 @@ public class AiService {
     }
 
     private void validateChatRequest(Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String scene = stringValue(request.get("scene"));
         String prompt = stringValue(request.get("prompt"));
         if (!StringUtils.hasText(scene) || !StringUtils.hasText(prompt)) {
