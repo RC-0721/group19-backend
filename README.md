@@ -104,16 +104,16 @@ Login request:
 ```bash
 curl -X POST http://127.0.0.1:8080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"account":"student001","password":"123456","role":"STUDENT"}'
+  -d '{"account":"20230301","password":"<password>","role":"STUDENT"}'
 ```
 
-Demo accounts inserted by `init-auth.sql`:
+Current realistic integration accounts:
 
 | Account | Password | Role |
 | --- | --- | --- |
-| `student001` | `123456` | `STUDENT` |
-| `teacher001` | `123456` | `TEACHER` |
-| `admin001` | `123456` | `EDU_ADMIN` |
+| `20230301` | `<password>` | `STUDENT` |
+| `t2018015` | `<password>` | `TEACHER` |
+| `a2020006` | `<password>` | `EDU_ADMIN` |
 
 ## Database Init And Regression
 

@@ -74,6 +74,83 @@ class UserAdminServiceTest {
     }
 
     @Test
+    void meProfileReturnsBaseUserWhenExtensionMissing() {
+        User actor = user(1L, "student001", "STUDENT", "ENABLED");
+        actor.setName("学生一");
+        when(jdbcTemplate.queryForList(contains("FROM user_profile_ext"), eq("student001")))
+                .thenReturn(java.util.List.of());
+
+        Map<String, Object> result = userAdminService.meProfile(actor);
+
+        assertEquals("1", result.get("user_id"));
+        assertEquals("student001", result.get("account"));
+        assertEquals("学生一", result.get("name"));
+        assertEquals("", result.get("nickname"));
+        assertEquals("", result.get("motto"));
+    }
+
+    @Test
+    void meProfileReturnsExtensionFields() {
+        User actor = user(1L, "student001", "STUDENT", "ENABLED");
+        when(jdbcTemplate.queryForList(contains("FROM user_profile_ext"), eq("student001")))
+                .thenReturn(java.util.List.of(Map.of(
+                        "avatar_url", "/uploads/avatar.png",
+                        "nickname", "小李",
+                        "gender", "男",
+                        "location", "成都",
+                        "school", "软件工程",
+                        "motto", "持续学习"
+                )));
+
+        Map<String, Object> result = userAdminService.meProfile(actor);
+
+        assertEquals("/uploads/avatar.png", result.get("avatar_url"));
+        assertEquals("小李", result.get("nickname"));
+        assertEquals("持续学习", result.get("motto"));
+    }
+
+    @Test
+    void updateMeProfileUpsertsExtension() {
+        User actor = user(1L, "student001", "STUDENT", "ENABLED");
+        when(jdbcTemplate.queryForList(contains("FROM user_profile_ext"), eq("student001")))
+                .thenReturn(java.util.List.of(Map.of(
+                        "avatar_url", "/uploads/avatar.png",
+                        "nickname", "小李",
+                        "gender", "男",
+                        "location", "成都",
+                        "school", "软件工程",
+                        "motto", "持续学习"
+                )));
+
+        Map<String, Object> result = userAdminService.updateMeProfile(actor, Map.of(
+                "avatar_url", "/uploads/avatar.png",
+                "nickname", "小李",
+                "gender", "男",
+                "location", "成都",
+                "school", "软件工程",
+                "motto", "持续学习"
+        ));
+
+        assertEquals("小李", result.get("nickname"));
+        verify(jdbcTemplate).update(contains("INSERT INTO user_profile_ext"),
+                org.mockito.ArgumentMatchers.any(), eq("student001"), eq("/uploads/avatar.png"), eq("小李"),
+                eq("男"), eq("成都"), eq("软件工程"), eq("持续学习"));
+    }
+
+    @Test
+    void updateMeProfileRejectsTooLongMotto() {
+        String longMotto = "a".repeat(301);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userAdminService.updateMeProfile(user(1L, "student001", "STUDENT", "ENABLED"),
+                        Map.of("motto", longMotto)));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+        verify(jdbcTemplate, never()).update(contains("INSERT INTO user_profile_ext"),
+                org.mockito.ArgumentMatchers.<Object[]>any());
+    }
+
+    @Test
     void updateUserUpdatesStateAndWritesOperationLog() {
         User target = user(2L, "student001", "STUDENT", "ENABLED");
         User actor = user(9L, "admin001", "EDU_ADMIN", "ENABLED");

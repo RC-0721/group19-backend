@@ -1,6 +1,7 @@
 package com.group19.teaching.controller;
 
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,7 +11,7 @@ import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import com.group19.teaching.service.AuthService;
-import com.group19.teaching.service.PracticeService;
+import com.group19.teaching.service.QuestionFavoriteService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -21,87 +22,88 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(PracticeController.class)
-class PracticeControllerTest {
+@WebMvcTest(QuestionFavoriteController.class)
+class QuestionFavoriteControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockBean
-    private PracticeService practiceService;
+    private QuestionFavoriteService questionFavoriteService;
 
     @MockBean
     private AuthService authService;
 
     @Test
-    void listReturnsStudentPracticeRecords() throws Exception {
+    void listReturnsFavorites() throws Exception {
         User student = user();
         when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
-        when(practiceService.listRecords(
-                ArgumentMatchers.eq(1),
-                ArgumentMatchers.eq(10),
-                ArgumentMatchers.eq("q-1"),
-                ArgumentMatchers.eq("2026-07-01 00:00:00"),
-                ArgumentMatchers.eq("2026-07-04 23:59:59"),
-                ArgumentMatchers.eq(student))).thenReturn(Map.of(
+        when(questionFavoriteService.list(1, 10, student)).thenReturn(Map.of(
                 "records", List.of(Map.of(
-                        "record_id", "practice-1",
                         "question_id", "q-1",
                         "stem", "题干",
-                        "answer_result", "正确",
-                        "score", 100
+                        "question_type", "单选题",
+                        "difficulty", "简单"
                 )),
                 "total", 1,
                 "page_no", 1,
                 "page_size", 10
         ));
 
-        mockMvc.perform(get("/api/practice/records")
+        mockMvc.perform(get("/api/question-favorites")
                         .header("token", "student-token")
                         .param("page_no", "1")
-                        .param("page_size", "10")
-                        .param("question_id", "q-1")
-                        .param("start_time", "2026-07-01 00:00:00")
-                        .param("end_time", "2026-07-04 23:59:59"))
+                        .param("page_size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
-                .andExpect(jsonPath("$.data.records[0].record_id").value("practice-1"))
-                .andExpect(jsonPath("$.data.records[0].answer_result").value("正确"))
+                .andExpect(jsonPath("$.data.records[0].question_id").value("q-1"))
                 .andExpect(jsonPath("$.data.total").value(1));
     }
 
     @Test
-    void submitReturnsPracticeResult() throws Exception {
+    void addReturnsFavoritedQuestion() throws Exception {
         User student = user();
         when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
-        when(practiceService.submit("q-1", "A", "daily", "job-java", student)).thenReturn(Map.of(
-                "record_id", "practice-1",
-                "is_correct", true,
-                "score", 100,
-                "answer_analysis", "解析",
-                "wrong_book_status", "无需记录"
+        when(questionFavoriteService.add(ArgumentMatchers.eq("q-1"), ArgumentMatchers.eq(student))).thenReturn(Map.of(
+                "question_id", "q-1",
+                "favorited", true
         ));
 
-        mockMvc.perform(post("/api/practice/records")
+        mockMvc.perform(post("/api/question-favorites")
                         .header("token", "student-token")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"question_id\":\"q-1\",\"answer\":\"A\",\"scene\":\"daily\",\"job_id\":\"job-java\"}"))
+                        .content("{\"question_id\":\"q-1\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
-                .andExpect(jsonPath("$.data.record_id").value("practice-1"))
-                .andExpect(jsonPath("$.data.is_correct").value(true))
-                .andExpect(jsonPath("$.data.score").value(100));
+                .andExpect(jsonPath("$.data.question_id").value("q-1"))
+                .andExpect(jsonPath("$.data.favorited").value(true));
     }
 
     @Test
-    void submitRejectsNonStudentRole() throws Exception {
+    void deleteReturnsUnfavoritedQuestion() throws Exception {
+        User student = user();
+        when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
+        when(questionFavoriteService.delete("q-1", student)).thenReturn(Map.of(
+                "question_id", "q-1",
+                "favorited", false
+        ));
+
+        mockMvc.perform(delete("/api/question-favorites/q-1")
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.favorited").value(false));
+    }
+
+    @Test
+    void listRejectsNonStudentRole() throws Exception {
         when(authService.requireRole("teacher-token", "STUDENT"))
                 .thenThrow(new BusinessException(ErrorCode.FORBIDDEN));
 
-        mockMvc.perform(post("/api/practice/records")
+        mockMvc.perform(get("/api/question-favorites")
                         .header("token", "teacher-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"question_id\":\"q-1\",\"answer\":\"A\",\"scene\":\"daily\",\"job_id\":\"job-java\"}"))
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("40301"));
     }

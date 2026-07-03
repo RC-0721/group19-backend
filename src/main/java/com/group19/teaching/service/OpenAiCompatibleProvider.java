@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -27,21 +28,27 @@ public class OpenAiCompatibleProvider implements AiProvider {
     private final ObjectMapper objectMapper;
     private final OkHttpClient client;
     private final String baseUrl;
-    private final String apiKey;
-    private final String apiKeyFile;
+    private final String resourceApiKeyFile;
+    private final String interviewApiKeyFile;
+    private final String adminApiKeyFile;
+    private final String assistantApiKeyFile;
     private final String model;
 
     public OpenAiCompatibleProvider(
             ObjectMapper objectMapper,
             @Value("${teaching.ai.base-url:https://api.deepseek.com}") String baseUrl,
-            @Value("${teaching.ai.api-key:}") String apiKey,
-            @Value("${teaching.ai.api-key-file:}") String apiKeyFile,
+            @Value("${teaching.ai.api-key-files.resources:}") String resourceApiKeyFile,
+            @Value("${teaching.ai.api-key-files.interview:}") String interviewApiKeyFile,
+            @Value("${teaching.ai.api-key-files.admin:}") String adminApiKeyFile,
+            @Value("${teaching.ai.api-key-files.assistant:}") String assistantApiKeyFile,
             @Value("${teaching.ai.model:deepseek-v4-flash}") String model,
             @Value("${teaching.ai.timeout-ms:30000}") int timeoutMs) {
         this.objectMapper = objectMapper;
         this.baseUrl = stripTrailingSlash(baseUrl);
-        this.apiKey = apiKey;
-        this.apiKeyFile = apiKeyFile;
+        this.resourceApiKeyFile = resourceApiKeyFile;
+        this.interviewApiKeyFile = interviewApiKeyFile;
+        this.adminApiKeyFile = adminApiKeyFile;
+        this.assistantApiKeyFile = assistantApiKeyFile;
         this.model = model;
         this.client = new OkHttpClient.Builder()
                 .callTimeout(Duration.ofMillis(timeoutMs))
@@ -57,7 +64,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
 
     @Override
     public AiProviderResult chat(AiRequest request) {
-        String key = apiKey();
+        String key = apiKeyForScene(request.scene());
         if (!StringUtils.hasText(key)) {
             throw new IllegalStateException("AI API key is missing");
         }
@@ -104,18 +111,42 @@ public class OpenAiCompatibleProvider implements AiProvider {
         return payload;
     }
 
-    private String apiKey() {
-        if (StringUtils.hasText(apiKey)) {
-            return apiKey.trim();
-        }
-        if (!StringUtils.hasText(apiKeyFile)) {
+    String apiKeyForScene(String scene) {
+        String selectedApiKeyFile = apiKeyFileForScene(scene);
+        if (!StringUtils.hasText(selectedApiKeyFile)) {
             return "";
         }
         try {
-            return Files.readString(Path.of(apiKeyFile)).trim();
+            return Files.readString(Path.of(selectedApiKeyFile)).trim();
         } catch (IOException exception) {
             return "";
         }
+    }
+
+    String apiKeyFileForScene(String scene) {
+        String normalized = scene == null ? "" : scene.toUpperCase(Locale.ROOT);
+        String selected = "";
+        if (containsAny(normalized, "INTERVIEW", "面试")) {
+            selected = interviewApiKeyFile;
+        } else if (containsAny(normalized, "HOMEWORK", "PRE_TASK", "PRACTICE_RECOMMENDATION",
+                "ASSISTANT", "作业", "课前", "课后")) {
+            selected = assistantApiKeyFile;
+        } else if (containsAny(normalized, "ADMIN", "ALERT", "MONITOR", "MATERIAL_REVIEW", "管理员")) {
+            selected = adminApiKeyFile;
+        } else if (containsAny(normalized, "MATERIAL", "RESOURCE", "KNOWLEDGE", "QUESTION",
+                "CONTENT_SCORE", "DATA_CLEANUP", "资料", "资源", "知识", "题目")) {
+            selected = resourceApiKeyFile;
+        }
+        return StringUtils.hasText(selected) ? selected : resourceApiKeyFile;
+    }
+
+    private boolean containsAny(String value, String... keywords) {
+        for (String keyword : keywords) {
+            if (value.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String stripTrailingSlash(String value) {

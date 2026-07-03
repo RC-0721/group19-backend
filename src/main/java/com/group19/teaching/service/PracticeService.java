@@ -3,6 +3,7 @@ package com.group19.teaching.service;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +20,55 @@ public class PracticeService {
 
     public PracticeService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public Map<String, Object> listRecords(
+            Integer pageNo,
+            Integer pageSize,
+            String questionId,
+            String startTime,
+            String endTime,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        List<Object> params = new ArrayList<>();
+        StringBuilder where = new StringBuilder("WHERE pr.student_id = ?\n");
+        params.add(actor.getAccount());
+        append(where, params, "pr.question_id", questionId);
+        if (StringUtils.hasText(startTime)) {
+            where.append("AND pr.submit_time >= ?\n");
+            params.add(startTime.trim());
+        }
+        if (StringUtils.hasText(endTime)) {
+            where.append("AND pr.submit_time <= ?\n");
+            params.add(endTime.trim());
+        }
+
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM practice_record pr
+                JOIN question q ON pr.question_id = q.question_id
+                """ + where, Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT pr.record_id, pr.question_id, q.stem,
+                       CASE WHEN pr.is_correct THEN '正确' ELSE '错误' END AS answer_result,
+                       pr.score, pr.submit_time
+                FROM practice_record pr
+                JOIN question q ON pr.question_id = q.question_id
+                """ + where + """
+                ORDER BY pr.submit_time DESC, pr.record_id DESC
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of(
+                "records", records,
+                "total", total == null ? 0 : total,
+                "page_no", pageNo,
+                "page_size", pageSize
+        );
     }
 
     @Transactional
@@ -70,5 +120,12 @@ public class PracticeService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private void append(StringBuilder where, List<Object> params, String column, String value) {
+        if (StringUtils.hasText(value)) {
+            where.append("AND ").append(column).append(" = ?\n");
+            params.add(value.trim());
+        }
     }
 }

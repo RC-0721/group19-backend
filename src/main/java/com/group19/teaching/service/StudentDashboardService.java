@@ -1,5 +1,7 @@
 package com.group19.teaching.service;
 
+import com.group19.teaching.common.BusinessException;
+import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -35,6 +37,56 @@ public class StudentDashboardService {
         List<Map<String, Object>> courses = courses(studentId, todos);
         return dashboard(courses, todos, practiceSummary(studentId), projectSummary(studentId),
                 interviewSummary(studentId), profileSummary(studentId, profile));
+    }
+
+    public Map<String, Object> listCourses(User actor, Integer pageNo, Integer pageSize) {
+        validatePage(pageNo, pageSize);
+        String studentId = actor.getAccount();
+        List<Map<String, Object>> profileRows = studentProfile(studentId);
+        if (profileRows.isEmpty()) {
+            return Map.of("records", List.of(), "total", 0, "page_no", pageNo, "page_size", pageSize);
+        }
+        String classId = stringValue(profileRows.get(0).get("class_id"));
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM course_class cc
+                JOIN course c ON cc.course_id = c.course_id
+                WHERE cc.class_id = ? AND c.status = '已发布'
+                """, Integer.class, classId);
+        List<Map<String, Object>> todos = todoTasks(studentId, classId);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT c.course_id, cc.course_class_id, c.course_name,
+                       COALESCE(u.name, cc.teacher_id, '') AS teacher_name,
+                       cc.status
+                FROM course_class cc
+                JOIN course c ON cc.course_id = c.course_id
+                LEFT JOIN sys_user u ON cc.teacher_id = u.account
+                WHERE cc.class_id = ? AND c.status = '已发布'
+                ORDER BY c.course_id, cc.course_class_id
+                LIMIT ? OFFSET ?
+                """, classId, pageSize, (pageNo - 1) * pageSize);
+
+        List<Map<String, Object>> records = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            String courseId = stringValue(row.get("course_id"));
+            String courseClassId = stringValue(row.get("course_class_id"));
+            Map<String, Object> record = new LinkedHashMap<>();
+            record.put("course_id", courseId);
+            record.put("course_class_id", courseClassId);
+            record.put("course_name", row.get("course_name"));
+            record.put("teacher_name", row.get("teacher_name"));
+            record.put("progress", progress(studentId, courseId, courseClassId));
+            record.put("next_task", nextTaskTitle(courseId, todos));
+            record.put("cover_url", coverUrl(courseId));
+            record.put("status", row.get("status"));
+            records.add(record);
+        }
+        return Map.of(
+                "records", records,
+                "total", total == null ? 0 : total,
+                "page_no", pageNo,
+                "page_size", pageSize
+        );
     }
 
     private Map<String, Object> dashboard(
@@ -120,6 +172,19 @@ public class StudentDashboardService {
                 .filter(StringUtils::hasText)
                 .findFirst()
                 .orElse("");
+    }
+
+    private String coverUrl(String courseId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT storage_path
+                FROM course_material
+                WHERE course_id = ? AND parse_status = '已发布'
+                  AND LOWER(file_type) IN ('png', 'jpg', 'jpeg', 'image/png', 'image/jpeg')
+                  AND storage_path IS NOT NULL AND storage_path <> ''
+                ORDER BY material_id
+                LIMIT 1
+                """, courseId);
+        return rows.isEmpty() ? "" : stringValue(rows.get(0).get("storage_path"));
     }
 
     private List<Map<String, Object>> todoTasks(String studentId, String classId) {
@@ -280,6 +345,12 @@ public class StudentDashboardService {
 
     private Map<String, Object> defaultProfileSummary() {
         return Map.of("profile_status", "数据不足", "target_job", "", "recommendation", "暂无学习建议");
+    }
+
+    private void validatePage(Integer pageNo, Integer pageSize) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
     }
 
     private Map<String, Object> firstRow(List<Map<String, Object>> rows) {

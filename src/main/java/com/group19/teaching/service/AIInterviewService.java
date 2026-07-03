@@ -3,34 +3,52 @@ package com.group19.teaching.service;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
+import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class AIInterviewService {
 
     private static final String MODEL = "mock-ai";
+    private static final Set<String> TRANSCRIPT_SOURCES = Set.of("student_audio", "student_text", "ai_text", "manual");
+    private static final Set<String> MEDIA_TYPES = Set.of("video", "screenshot", "audio");
+    private static final Set<String> MEDIA_MIME_TYPES = Set.of("video/webm", "image/png", "image/jpeg");
 
     private final JdbcTemplate jdbcTemplate;
     private final AiService aiService;
+    private final TransactionTemplate transactionTemplate;
 
     @Autowired
-    public AIInterviewService(JdbcTemplate jdbcTemplate, AiService aiService) {
+    public AIInterviewService(
+            JdbcTemplate jdbcTemplate,
+            AiService aiService,
+            PlatformTransactionManager transactionManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.aiService = aiService;
+        this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
+    }
+
+    AIInterviewService(JdbcTemplate jdbcTemplate, AiService aiService) {
+        this(jdbcTemplate, aiService, null);
     }
 
     AIInterviewService(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null);
+        this(jdbcTemplate, null, null);
     }
 
     public Map<String, Object> list(
@@ -75,6 +93,9 @@ public class AIInterviewService {
 
     @Transactional
     public Map<String, Object> start(Map<String, Object> request, User actor) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
         String jobId = stringValue(request.get("job_id"));
         String scene = stringValue(request.get("scene"));
         String difficultyLevel = stringValue(request.get("difficulty_level"));
@@ -104,10 +125,115 @@ public class AIInterviewService {
 
     @Transactional
     public Map<String, Object> sendMessage(String sessionId, Map<String, Object> request, User actor) {
-        String content = stringValue(request.get("message_content"));
-        if (!StringUtils.hasText(sessionId) || !StringUtils.hasText(content)) {
+        return completeMessage(sessionId, request, actor);
+    }
+
+    @Transactional
+    public Map<String, Object> saveTranscript(String sessionId, Map<String, Object> request, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireSessionReadable(session, actor);
+        if (request == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
+        String content = stringValue(request.get("content"));
+        String source = stringValue(request.get("source"));
+        Double startTime = doubleValue(request.get("start_time"));
+        Double endTime = doubleValue(request.get("end_time"));
+        Boolean isFinal = booleanValue(request.get("is_final"));
+        if (!StringUtils.hasText(content) || !TRANSCRIPT_SOURCES.contains(source)
+                || startTime == null || endTime == null || endTime < startTime || isFinal == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+
+        String segmentId = "segment-" + UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO ai_interview_transcript_segment
+                    (segment_id, session_id, content, source, start_time, end_time, is_final, created_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, segmentId, sessionId, content, source, startTime, endTime, isFinal,
+                Timestamp.valueOf(LocalDateTime.now()));
+        return Map.of("segment_id", segmentId);
+    }
+
+    public Map<String, Object> listTranscripts(String sessionId, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireSessionReadable(session, actor);
+        List<Map<String, Object>> segments = jdbcTemplate.queryForList("""
+                SELECT segment_id, session_id, content, source, start_time, end_time, is_final, created_time
+                FROM ai_interview_transcript_segment
+                WHERE session_id = ?
+                ORDER BY start_time ASC, created_time ASC, segment_id ASC
+                """, sessionId);
+        return Map.of("segments", segments);
+    }
+
+    @Transactional
+    public Map<String, Object> bindMedia(String sessionId, Map<String, Object> request, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireStudentOwner(session, actor);
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String mediaType = stringValue(request.get("media_type"));
+        String fileName = stringValue(request.get("file_name"));
+        String fileUrl = stringValue(request.get("file_url"));
+        String storagePath = stringValue(request.get("storage_path"));
+        String mimeType = stringValue(request.get("mime_type"));
+        if (!MEDIA_TYPES.contains(mediaType) || (!StringUtils.hasText(fileUrl) && !StringUtils.hasText(storagePath))) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (StringUtils.hasText(mimeType) && !MEDIA_MIME_TYPES.contains(mimeType)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+
+        String mediaId = "media-" + UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO ai_interview_media
+                    (media_id, session_id, media_type, file_name, file_url, storage_path, mime_type, created_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, mediaId, sessionId, mediaType, fileName, fileUrl, storagePath, mimeType,
+                Timestamp.valueOf(LocalDateTime.now()));
+        return Map.of("media_id", mediaId);
+    }
+
+    public Map<String, Object> listMedia(String sessionId, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireSessionReadable(session, actor);
+        List<Map<String, Object>> media = jdbcTemplate.queryForList("""
+                SELECT media_id, session_id, media_type, file_name, file_url, storage_path, mime_type, created_time
+                FROM ai_interview_media
+                WHERE session_id = ?
+                ORDER BY created_time ASC, media_id ASC
+                """, sessionId);
+        return Map.of("media", media);
+    }
+
+    public SseEmitter streamMessage(String sessionId, Map<String, Object> request, User actor) {
+        validateMessageRequest(sessionId, request);
+        SseEmitter emitter = new SseEmitter(0L);
+        CompletableFuture.runAsync(() -> {
+            try {
+                Map<String, Object> result = runInTransaction(() -> completeMessage(sessionId, request, actor));
+                emitter.send(SseEmitter.event().name("meta").data(Map.of(
+                        "message_id", result.get("message_id"),
+                        "reference_chunk", result.get("reference_chunk"),
+                        "status", result.get("status")
+                )));
+                sendChunks(emitter, stringValue(result.get("message_content")));
+                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                emitter.complete();
+            } catch (BusinessException exception) {
+                sendError(emitter, exception.errorCode().code(), exception.errorCode().message());
+            } catch (RuntimeException | IOException exception) {
+                sendError(emitter, ErrorCode.INTERNAL_ERROR.code(), ErrorCode.INTERNAL_ERROR.message());
+            }
+        });
+        return emitter;
+    }
+
+    private Map<String, Object> completeMessage(String sessionId, Map<String, Object> request, User actor) {
+        validateMessageRequest(sessionId, request);
+        String content = stringValue(request.get("message_content"));
         Map<String, Object> session = requireSession(sessionId);
         if (!actor.getAccount().equals(stringValue(session.get("student_id")))) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
@@ -152,6 +278,35 @@ public class AIInterviewService {
         }
         return Map.of("message_id", aiMessageId, "message_content", aiContent,
                 "reference_chunk", referenceChunk, "status", "已完成");
+    }
+
+    private void validateMessageRequest(String sessionId, Map<String, Object> request) {
+        if (request == null || !StringUtils.hasText(sessionId)
+                || !StringUtils.hasText(stringValue(request.get("message_content")))) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+    }
+
+    private Map<String, Object> runInTransaction(MessageSupplier supplier) {
+        if (transactionTemplate == null) {
+            return supplier.get();
+        }
+        return transactionTemplate.execute(status -> supplier.get());
+    }
+
+    private void sendChunks(SseEmitter emitter, String content) throws IOException {
+        for (int start = 0; start < content.length(); start += 32) {
+            emitter.send(SseEmitter.event().name("delta")
+                    .data(content.substring(start, Math.min(start + 32, content.length()))));
+        }
+    }
+
+    private void sendError(SseEmitter emitter, String code, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(Map.of("code", code, "message", message)));
+        } catch (IOException ignored) {
+        }
+        emitter.complete();
     }
 
     public Map<String, Object> report(String sessionId, User actor) {
@@ -207,6 +362,28 @@ public class AIInterviewService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         return rows.get(0);
+    }
+
+    private void requireSessionReadable(Map<String, Object> session, User actor) {
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return;
+        }
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            requireStudentOwner(session, actor);
+            return;
+        }
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            requireTeacherStudent(stringValue(session.get("student_id")), actor.getAccount());
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN);
+    }
+
+    private void requireStudentOwner(Map<String, Object> session, User actor) {
+        if (!"STUDENT".equalsIgnoreCase(actor.getRole())
+                || !actor.getAccount().equals(stringValue(session.get("student_id")))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
     }
 
     private String firstReferenceChunk() {
@@ -291,6 +468,39 @@ public class AIInterviewService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
+    private Double doubleValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        String text = stringValue(value);
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        String text = stringValue(value);
+        if ("true".equalsIgnoreCase(text)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equalsIgnoreCase(text)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
     private record ChatResult(String model, String content) {
+    }
+
+    private interface MessageSupplier {
+        Map<String, Object> get();
     }
 }

@@ -21,6 +21,30 @@ class PracticeServiceTest {
     private final PracticeService practiceService = new PracticeService(jdbcTemplate);
 
     @Test
+    void listRecordsReturnsStudentRows() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student001"), eq("q-1"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"), eq("q-1"), eq(10), eq(0))).thenReturn(List.of(Map.of(
+                "record_id", "practice-1",
+                "question_id", "q-1",
+                "answer_result", "正确",
+                "score", 100
+        )));
+
+        Map<String, Object> result = practiceService.listRecords(1, 10, "q-1", null, null, user());
+
+        assertEquals(1, result.get("total"));
+        assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
+    void listRecordsRejectsInvalidPageSize() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> practiceService.listRecords(1, 0, null, null, null, user()));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
     void submitCreatesCorrectRecord() {
         when(jdbcTemplate.queryForList(anyString(), eq("q-1"))).thenReturn(List.of(Map.of(
                 "answer", "A",

@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,5 +25,14 @@ public class StudentDashboardController {
     @GetMapping("/dashboard")
     public ApiResponse<Map<String, Object>> dashboard(@RequestHeader(value = "token", required = false) String token) {
         return ApiResponse.success(studentDashboardService.load(authService.requireRole(token, "STUDENT")));
+    }
+
+    @GetMapping("/courses")
+    public ApiResponse<Map<String, Object>> courses(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        return ApiResponse.success(studentDashboardService.listCourses(
+                authService.requireRole(token, "STUDENT"), pageNo, pageSize));
     }
 }

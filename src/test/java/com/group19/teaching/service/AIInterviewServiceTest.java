@@ -2,6 +2,7 @@ package com.group19.teaching.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,6 +88,102 @@ class AIInterviewServiceTest {
     }
 
     @Test
+    void saveTranscriptCreatesSegmentForOwner() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(session("student001")));
+
+        Map<String, Object> result = interviewService.saveTranscript("session-1", Map.of(
+                "content", "我熟悉 Spring Boot",
+                "source", "student_text",
+                "start_time", 0,
+                "end_time", 3.2,
+                "is_final", true
+        ), user("student001", "STUDENT"));
+
+        assertTrue(String.valueOf(result.get("segment_id")).startsWith("segment-"));
+    }
+
+    @Test
+    void saveTranscriptRejectsInvalidTimeRange() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(session("student001")));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interviewService.saveTranscript("session-1", Map.of(
+                        "content", "回答",
+                        "source", "student_text",
+                        "start_time", 5,
+                        "end_time", 3,
+                        "is_final", true
+                ), user("student001", "STUDENT")));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void listTranscriptsAllowsTeacherInScope() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1")))
+                .thenReturn(List.of(session("student001")))
+                .thenReturn(List.of(Map.of("segment_id", "segment-1", "content", "回答")));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student001"), eq("teacher001"))).thenReturn(1);
+
+        Map<String, Object> result = interviewService.listTranscripts("session-1", user("teacher001", "TEACHER"));
+
+        assertEquals(1, ((List<?>) result.get("segments")).size());
+    }
+
+    @Test
+    void bindMediaCreatesMediaForOwner() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(session("student001")));
+
+        Map<String, Object> result = interviewService.bindMedia("session-1", Map.of(
+                "media_type", "video",
+                "file_name", "interview.webm",
+                "file_url", "/uploads/interview.webm",
+                "mime_type", "video/webm"
+        ), user("student001", "STUDENT"));
+
+        assertTrue(String.valueOf(result.get("media_id")).startsWith("media-"));
+    }
+
+    @Test
+    void bindMediaRejectsInvalidMimeType() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(session("student001")));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interviewService.bindMedia("session-1", Map.of(
+                        "media_type", "video",
+                        "file_url", "/uploads/interview.mp4",
+                        "mime_type", "video/mp4"
+                ), user("student001", "STUDENT")));
+
+        assertEquals(ErrorCode.FILE_INVALID, exception.errorCode());
+    }
+
+    @Test
+    void bindMediaRejectsTeacher() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(session("student001")));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interviewService.bindMedia("session-1", Map.of(
+                        "media_type", "video",
+                        "file_url", "/uploads/interview.webm",
+                        "mime_type", "video/webm"
+                ), user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
+    }
+
+    @Test
+    void listMediaAllowsAdmin() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1")))
+                .thenReturn(List.of(session("student001")))
+                .thenReturn(List.of(Map.of("media_id", "media-1", "media_type", "video")));
+
+        Map<String, Object> result = interviewService.listMedia("session-1", user("admin001", "EDU_ADMIN"));
+
+        assertEquals(1, ((List<?>) result.get("media")).size());
+    }
+
+    @Test
     void reportAllowsTeacherInScope() {
         when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(Map.of(
                 "report_id", "report-1",
@@ -141,5 +238,15 @@ class AIInterviewServiceTest {
         user.setAccount(account);
         user.setRole(role);
         return user;
+    }
+
+    private static Map<String, Object> session(String studentId) {
+        return Map.of(
+                "session_id", "session-1",
+                "student_id", studentId,
+                "job_id", "job-java-backend",
+                "scene", "模拟面试",
+                "prompt_version", "v1"
+        );
     }
 }

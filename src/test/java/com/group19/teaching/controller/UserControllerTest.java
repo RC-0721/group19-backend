@@ -65,6 +65,59 @@ class UserControllerTest {
     }
 
     @Test
+    void meProfileReturnsCurrentUserProfile() throws Exception {
+        User student = user(1L, "student001", "STUDENT");
+        student.setName("学生一");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(userAdminService.meProfile(student)).thenReturn(Map.of(
+                "user_id", "1",
+                "account", "student001",
+                "name", "学生一",
+                "role", "STUDENT",
+                "avatar_url", "/uploads/avatar.png",
+                "nickname", "小李",
+                "gender", "男",
+                "location", "成都",
+                "school", "软件工程",
+                "motto", "持续学习"
+        ));
+
+        mockMvc.perform(get("/api/users/me/profile")
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.account").value("student001"))
+                .andExpect(jsonPath("$.data.nickname").value("小李"));
+    }
+
+    @Test
+    void updateMeProfileReturnsUpdatedProfile() throws Exception {
+        User teacher = user(2L, "teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(userAdminService.updateMeProfile(eq(teacher), anyMap())).thenReturn(Map.of(
+                "user_id", "2",
+                "account", "teacher001",
+                "name", "teacher001",
+                "role", "TEACHER",
+                "avatar_url", "/uploads/teacher.png",
+                "nickname", "周老师",
+                "gender", "",
+                "location", "",
+                "school", "计算机学院",
+                "motto", "因材施教"
+        ));
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("token", "teacher-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"周老师\",\"school\":\"计算机学院\",\"motto\":\"因材施教\",\"avatar_url\":\"/uploads/teacher.png\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.nickname").value("周老师"))
+                .andExpect(jsonPath("$.data.motto").value("因材施教"));
+    }
+
+    @Test
     void updateUserReturnsUpdatedState() throws Exception {
         User admin = user(9L, "admin001", "EDU_ADMIN");
         when(authService.requireRole("admin-token", "EDU_ADMIN")).thenReturn(admin);
@@ -83,6 +136,16 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.user_id").value("2"))
                 .andExpect(jsonPath("$.data.status").value("DISABLED"));
+    }
+
+    @Test
+    void meProfileRejectsMissingToken() throws Exception {
+        when(authService.requireRole(null, "STUDENT", "TEACHER", "EDU_ADMIN"))
+                .thenThrow(new BusinessException(ErrorCode.AUTH_FAILED));
+
+        mockMvc.perform(get("/api/users/me/profile"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("40101"));
     }
 
     @Test

@@ -59,6 +59,16 @@ public class UserAdminService {
         );
     }
 
+    public Map<String, Object> meProfile(User actor) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT avatar_url, nickname, gender, location, school, motto
+                FROM user_profile_ext
+                WHERE user_id = ?
+                LIMIT 1
+                """, actor.getAccount());
+        return profileResponse(actor, rows.isEmpty() ? Map.of() : rows.get(0));
+    }
+
     @Transactional
     public Map<String, Object> createUser(Map<String, Object> request, User actor) {
         if (request == null) {
@@ -120,6 +130,35 @@ public class UserAdminService {
         return userResponse(user);
     }
 
+    @Transactional
+    public Map<String, Object> updateMeProfile(User actor, Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String avatarUrl = optionalText(request.get("avatar_url"), 500);
+        String nickname = optionalText(request.get("nickname"), 100);
+        String gender = optionalText(request.get("gender"), 20);
+        String location = optionalText(request.get("location"), 100);
+        String school = optionalText(request.get("school"), 100);
+        String motto = optionalText(request.get("motto"), 300);
+
+        jdbcTemplate.update("""
+                INSERT INTO user_profile_ext
+                  (profile_id, user_id, avatar_url, nickname, gender, location, school, motto, updated_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                  avatar_url = VALUES(avatar_url),
+                  nickname = VALUES(nickname),
+                  gender = VALUES(gender),
+                  location = VALUES(location),
+                  school = VALUES(school),
+                  motto = VALUES(motto),
+                  updated_time = NOW()
+                """, "profile-ext-" + UUID.randomUUID(), actor.getAccount(), avatarUrl, nickname,
+                gender, location, school, motto);
+        return meProfile(actor);
+    }
+
     private void syncStudentProfile(User user, Object profileObject, boolean createDefault) {
         if (!"STUDENT".equalsIgnoreCase(user.getRole())) {
             return;
@@ -172,6 +211,21 @@ public class UserAdminService {
                 "role", user.getRole(),
                 "status", user.getStatus(),
                 "permission_scope", user.getPermissionScope()
+        );
+    }
+
+    private Map<String, Object> profileResponse(User actor, Map<String, Object> ext) {
+        return Map.of(
+                "user_id", String.valueOf(actor.getId()),
+                "account", actor.getAccount(),
+                "name", stringValue(actor.getName()),
+                "role", actor.getRole(),
+                "avatar_url", stringValue(ext.get("avatar_url")),
+                "nickname", stringValue(ext.get("nickname")),
+                "gender", stringValue(ext.get("gender")),
+                "location", stringValue(ext.get("location")),
+                "school", stringValue(ext.get("school")),
+                "motto", stringValue(ext.get("motto"))
         );
     }
 
@@ -228,6 +282,14 @@ public class UserAdminService {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         return normalized;
+    }
+
+    private String optionalText(Object value, int maxLength) {
+        String text = stringValue(value);
+        if (text.length() > maxLength) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        return text;
     }
 
     private String stringValue(Object value) {

@@ -147,6 +147,19 @@ CREATE TABLE IF NOT EXISTS student_profile (
   INDEX idx_student_profile_job (target_job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS user_profile_ext (
+  profile_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  avatar_url VARCHAR(500),
+  nickname VARCHAR(100),
+  gender VARCHAR(20),
+  location VARCHAR(100),
+  school VARCHAR(100),
+  motto VARCHAR(300),
+  updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_user_profile_ext_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS operation_log (
   log_id VARCHAR(64) PRIMARY KEY,
   user_id VARCHAR(64) NOT NULL,
@@ -296,10 +309,28 @@ CREATE TABLE IF NOT EXISTS material_ai_audit (
   format_risk VARCHAR(100),
   copyright_risk VARCHAR(100),
   audit_result_json MEDIUMTEXT,
+  review_status VARCHAR(20) NOT NULL DEFAULT '待复核',
+  review_result TEXT,
+  reviewed_by VARCHAR(64),
+  reviewed_time DATETIME,
   created_by VARCHAR(64),
   created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_material_ai_audit_material (material_id)
+  INDEX idx_material_ai_audit_material (material_id),
+  INDEX idx_material_ai_audit_review (review_status, created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_ai_audit' AND COLUMN_NAME = 'review_status');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_ai_audit ADD COLUMN review_status VARCHAR(20) NOT NULL DEFAULT ''待复核''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_ai_audit' AND COLUMN_NAME = 'review_result');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_ai_audit ADD COLUMN review_result TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_ai_audit' AND COLUMN_NAME = 'reviewed_by');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_ai_audit ADD COLUMN reviewed_by VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'material_ai_audit' AND COLUMN_NAME = 'reviewed_time');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE material_ai_audit ADD COLUMN reviewed_time DATETIME', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS content_score (
   score_id VARCHAR(64) PRIMARY KEY,
@@ -308,11 +339,29 @@ CREATE TABLE IF NOT EXISTS content_score (
   quality_score FLOAT NOT NULL,
   abnormal_flag VARCHAR(20) NOT NULL,
   ai_explanation TEXT,
+  review_status VARCHAR(20) NOT NULL DEFAULT '待复核',
+  review_result TEXT,
+  reviewed_by VARCHAR(64),
+  reviewed_time DATETIME,
   created_by VARCHAR(64),
   created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_content_score_source (source_type, source_id),
-  INDEX idx_content_score_flag (abnormal_flag)
+  INDEX idx_content_score_flag (abnormal_flag),
+  INDEX idx_content_score_review (review_status, created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'content_score' AND COLUMN_NAME = 'review_status');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE content_score ADD COLUMN review_status VARCHAR(20) NOT NULL DEFAULT ''待复核''', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'content_score' AND COLUMN_NAME = 'review_result');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE content_score ADD COLUMN review_result TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'content_score' AND COLUMN_NAME = 'reviewed_by');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE content_score ADD COLUMN reviewed_by VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'content_score' AND COLUMN_NAME = 'reviewed_time');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE content_score ADD COLUMN reviewed_time DATETIME', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS homework (
   homework_id VARCHAR(64) PRIMARY KEY,
@@ -550,6 +599,30 @@ CREATE TABLE IF NOT EXISTS ai_interview_report (
   INDEX idx_ai_report_job (job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS ai_interview_transcript_segment (
+  segment_id VARCHAR(64) PRIMARY KEY,
+  session_id VARCHAR(64) NOT NULL,
+  content TEXT NOT NULL,
+  source VARCHAR(50) NOT NULL,
+  start_time FLOAT NOT NULL,
+  end_time FLOAT NOT NULL,
+  is_final BOOLEAN NOT NULL DEFAULT TRUE,
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_interview_transcript_session_time (session_id, start_time, created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_interview_media (
+  media_id VARCHAR(64) PRIMARY KEY,
+  session_id VARCHAR(64) NOT NULL,
+  media_type VARCHAR(50) NOT NULL,
+  file_name VARCHAR(200),
+  file_url VARCHAR(500),
+  storage_path VARCHAR(500),
+  mime_type VARCHAR(100),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_interview_media_session_time (session_id, created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS ability_profile (
   profile_id VARCHAR(64) PRIMARY KEY,
   student_id VARCHAR(64) NOT NULL,
@@ -623,6 +696,19 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_call_log' AND COLUMN_NAME = 'request_id');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_call_log ADD COLUMN request_id VARCHAR(64) NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS ai_alert (
+  alert_id VARCHAR(64) PRIMARY KEY,
+  alert_type VARCHAR(64) NOT NULL,
+  severity VARCHAR(20) NOT NULL,
+  summary VARCHAR(255) NOT NULL,
+  detail_json MEDIUMTEXT,
+  status VARCHAR(20) NOT NULL DEFAULT '待处理',
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_time DATETIME NULL,
+  INDEX idx_ai_alert_status_time (status, created_time),
+  INDEX idx_ai_alert_type_status (alert_type, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ai_task (
   task_id VARCHAR(64) PRIMARY KEY,
@@ -832,6 +918,57 @@ CREATE TABLE IF NOT EXISTS wrong_book (
   master_status VARCHAR(20) NOT NULL DEFAULT '未掌握',
   UNIQUE KEY uk_wrong_student_question (student_id, question_id),
   INDEX idx_wrong_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS question_favorite (
+  favorite_id VARCHAR(64) PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  question_id VARCHAR(64) NOT NULL,
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_question_favorite_student_question (student_id, question_id),
+  INDEX idx_question_favorite_student (student_id),
+  INDEX idx_question_favorite_question (question_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS discussion_post (
+  post_id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  category VARCHAR(50),
+  tags TEXT,
+  author_id VARCHAR(64) NOT NULL,
+  author_name VARCHAR(100),
+  avatar_url VARCHAR(500),
+  like_count INT NOT NULL DEFAULT 0,
+  reply_count INT NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT '已发布',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_discussion_post_category_time (category, created_at),
+  INDEX idx_discussion_post_author (author_id),
+  INDEX idx_discussion_post_status_time (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS discussion_reply (
+  reply_id VARCHAR(64) PRIMARY KEY,
+  post_id VARCHAR(64) NOT NULL,
+  content TEXT NOT NULL,
+  author_id VARCHAR(64) NOT NULL,
+  author_name VARCHAR(100),
+  avatar_url VARCHAR(500),
+  status VARCHAR(20) NOT NULL DEFAULT '已发布',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_discussion_reply_post_time (post_id, created_at),
+  INDEX idx_discussion_reply_author (author_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS discussion_like (
+  like_id VARCHAR(64) PRIMARY KEY,
+  post_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_discussion_like_post_user (post_id, user_id),
+  INDEX idx_discussion_like_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO data_source (source_id, source_name, source_type, source_url, license, usage_note) VALUES

@@ -70,6 +70,37 @@ class StudentDashboardControllerTest {
                 .andExpect(jsonPath("$.code").value("40301"));
     }
 
+    @Test
+    void coursesReturnsStudentCoursePage() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
+        when(studentDashboardService.listCourses(student, 1, 10)).thenReturn(Map.of(
+                "records", List.of(Map.of(
+                        "course_id", "course-java-001",
+                        "course_class_id", "cc-java-001",
+                        "course_name", "Java EE程序设计",
+                        "teacher_name", "教师一",
+                        "progress", 50,
+                        "next_task", "阅读 Java 基础",
+                        "cover_url", "",
+                        "status", "开课中"
+                )),
+                "total", 1,
+                "page_no", 1,
+                "page_size", 10
+        ));
+
+        mockMvc.perform(get("/api/student/courses")
+                        .header("token", "student-token")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].course_id").value("course-java-001"))
+                .andExpect(jsonPath("$.data.records[0].course_class_id").value("cc-java-001"))
+                .andExpect(jsonPath("$.data.records[0].progress").value(50));
+    }
+
     private static User user(String account, String role) {
         User user = new User();
         user.setAccount(account);

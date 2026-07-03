@@ -1,10 +1,14 @@
 package com.group19.teaching.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.group19.teaching.common.BusinessException;
+import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -91,6 +95,76 @@ class StudentDashboardServiceTest {
         assertEquals(0, ((Map<?, ?>) result.get("project_summary")).get("submitted_count"));
         assertEquals(0, ((Map<?, ?>) result.get("interview_summary")).get("completed_count"));
         assertEquals("数据不足", ((Map<?, ?>) result.get("profile_summary")).get("profile_status"));
+    }
+
+    @Test
+    void listCoursesReturnsPagedStudentCourses() {
+        when(jdbcTemplate.queryForList(contains("FROM student_profile sp"), eq("student001")))
+                .thenReturn(List.of(Map.of(
+                        "student_id", "student001",
+                        "class_id", "class-cs-2026",
+                        "target_job_id", "job-java-backend"
+                )));
+        when(jdbcTemplate.queryForObject(contains("FROM course_class cc"), eq(Integer.class), eq("class-cs-2026")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(contains("FROM pre_task pt"), eq("student001"), eq("class-cs-2026")))
+                .thenReturn(List.of(Map.of(
+                        "task_id", "pre-java-001",
+                        "task_type", "PRE_TASK",
+                        "title", "阅读 Java 基础",
+                        "deadline", Timestamp.valueOf(LocalDateTime.now().plusDays(1)),
+                        "course_id", "course-java-001",
+                        "course_class_id", "cc-java-001"
+                )));
+        when(jdbcTemplate.queryForList(contains("FROM homework h"), eq("student001"), eq("class-cs-2026")))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForList(contains("FROM project_task pt"), eq("student001"), eq("class-cs-2026")))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForList(contains("COALESCE(u.name"), eq("class-cs-2026"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "course_id", "course-java-001",
+                        "course_class_id", "cc-java-001",
+                        "course_name", "Java EE程序设计",
+                        "teacher_name", "教师一",
+                        "status", "开课中"
+                )));
+        when(jdbcTemplate.queryForList(contains("(SELECT COUNT(*) FROM pre_task"),
+                eq("cc-java-001"), eq("cc-java-001"), eq("course-java-001")))
+                .thenReturn(List.of(Map.of("value_count", 4)));
+        when(jdbcTemplate.queryForList(contains("(SELECT COUNT(DISTINCT pts.pre_task_id)"),
+                eq("student001"), eq("cc-java-001"), eq("student001"), eq("cc-java-001"),
+                eq("student001"), eq("course-java-001")))
+                .thenReturn(List.of(Map.of("value_count", 2)));
+        when(jdbcTemplate.queryForList(contains("FROM course_material"), eq("course-java-001")))
+                .thenReturn(List.of(Map.of("storage_path", "/uploads/java-cover.png")));
+
+        Map<String, Object> result = studentDashboardService.listCourses(user("student001"), 1, 10);
+
+        assertEquals(1, result.get("total"));
+        Map<?, ?> course = (Map<?, ?>) ((List<?>) result.get("records")).get(0);
+        assertEquals("course-java-001", course.get("course_id"));
+        assertEquals("cc-java-001", course.get("course_class_id"));
+        assertEquals("阅读 Java 基础", course.get("next_task"));
+        assertEquals(50, course.get("progress"));
+        assertEquals("/uploads/java-cover.png", course.get("cover_url"));
+    }
+
+    @Test
+    void listCoursesReturnsEmptyWhenStudentProfileMissing() {
+        when(jdbcTemplate.queryForList(anyString(), eq("student404"))).thenReturn(List.of());
+
+        Map<String, Object> result = studentDashboardService.listCourses(user("student404"), 1, 10);
+
+        assertEquals(List.of(), result.get("records"));
+        assertEquals(0, result.get("total"));
+    }
+
+    @Test
+    void listCoursesRejectsInvalidPage() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> studentDashboardService.listCourses(user("student001"), 0, 10));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
     }
 
     private static User user(String account) {

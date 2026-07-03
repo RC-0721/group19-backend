@@ -37,6 +37,21 @@ public class UserController {
         return ApiResponse.success(userAdminService.list(role, status, keyword, pageNo, pageSize));
     }
 
+    @GetMapping("/me/profile")
+    @RequireRole({"STUDENT", "TEACHER", "EDU_ADMIN"})
+    public ApiResponse<Map<String, Object>> meProfile(
+            @RequestAttribute(RequireRoleInterceptor.CURRENT_USER_ATTRIBUTE) User actor) {
+        return ApiResponse.success(userAdminService.meProfile(actor));
+    }
+
+    @PutMapping("/me/profile")
+    @RequireRole({"STUDENT", "TEACHER", "EDU_ADMIN"})
+    public ApiResponse<Map<String, Object>> updateMeProfile(
+            @RequestAttribute(RequireRoleInterceptor.CURRENT_USER_ATTRIBUTE) User actor,
+            @RequestBody Map<String, Object> request) {
+        return ApiResponse.success(userAdminService.updateMeProfile(actor, request));
+    }
+
     @PostMapping
     public ApiResponse<Map<String, Object>> createUser(
             @RequestAttribute(RequireRoleInterceptor.CURRENT_USER_ATTRIBUTE) User actor,

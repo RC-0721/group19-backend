@@ -19,8 +19,16 @@ teaching:
   ai:
     provider: ${TEACHING_AI_PROVIDER:mock}
     base-url: ${TEACHING_AI_BASE_URL:https://api.deepseek.com}
-    api-key: ${TEACHING_AI_API_KEY:}
-    api-key-file: ${TEACHING_AI_API_KEY_FILE:docs/deepseekApi.txt}
+    api-key-files:
+      resources: ${TEACHING_AI_RESOURCE_API_KEY_FILE:docs/deepseekApi/deepseekApi_resources.txt}
+      interview: ${TEACHING_AI_INTERVIEW_API_KEY_FILE:docs/deepseekApi/deepseekApi_interview.txt}
+      admin: ${TEACHING_AI_ADMIN_API_KEY_FILE:docs/deepseekApi/deepseekApi_admin.txt}
+      assistant: ${TEACHING_AI_ASSISTANT_API_KEY_FILE:docs/deepseekApi/deepseekApi_assistant.txt}
+    prompt-files:
+      resources: ${TEACHING_AI_RESOURCE_PROMPT_FILE:docs/ai-prompts/deepseek/resources_prompt.md}
+      interview: ${TEACHING_AI_INTERVIEW_PROMPT_FILE:docs/ai-prompts/deepseek/interview_prompt.md}
+      admin: ${TEACHING_AI_ADMIN_PROMPT_FILE:docs/ai-prompts/deepseek/admin_prompt.md}
+      assistant: ${TEACHING_AI_ASSISTANT_PROMPT_FILE:docs/ai-prompts/deepseek/assistant_prompt.md}
     model: ${TEACHING_AI_MODEL:deepseek-v4-flash}
     timeout-ms: ${TEACHING_AI_TIMEOUT_MS:30000}
     fallback-enabled: ${TEACHING_AI_FALLBACK_ENABLED:true}
