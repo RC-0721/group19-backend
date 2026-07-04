@@ -70,6 +70,22 @@ class AdminAiOpsServiceTest {
     }
 
     @Test
+    void materialReviewQueueDefaultsToPendingReviewAndIncludesRiskRows() {
+        when(jdbcTemplate.queryForList(anyString(), eq("待复核"), eq("待复核"), eq(20), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "review_id", "audit:audit-1",
+                        "review_status", "待复核",
+                        "format_risk", "需人工确认"
+                )));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("待复核"), eq("待复核"))).thenReturn(1);
+
+        Map<String, Object> result = adminAiOpsService.listMaterialReviewQueue(null, 1, 20, admin());
+
+        assertEquals(1, result.get("total"));
+        assertEquals("audit:audit-1", ((Map<?, ?>) ((List<?>) result.get("records")).get(0)).get("review_id"));
+    }
+
+    @Test
     void updateMaterialReviewWritesAuditDecision() {
         when(jdbcTemplate.update(contains("UPDATE material_ai_audit"), eq("已复核"),
                 eq("确认风险"), eq("admin001"), any(), eq("audit-1"))).thenReturn(1);

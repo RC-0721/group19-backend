@@ -57,6 +57,8 @@ class AiContentServiceTest {
         assertEquals("待确认", result.get("task_status"));
         verify(jdbcTemplate).update(contains("SET task_status = '待确认'"), any(), any(), any());
         verify(jdbcTemplate).update("UPDATE course_material SET parse_status = '待确认' WHERE material_id = ?", "material-1");
+        verify(jdbcTemplate).update(contains("INSERT INTO ai_call_log"), any(), eq("teacher001"),
+                eq("material-1"), anyString(), eq("成功"), any(), eq(""), any());
     }
 
     @Test
@@ -72,6 +74,24 @@ class AiContentServiceTest {
         assertEquals("解析失败", result.get("task_status"));
         verify(jdbcTemplate).update(contains("SET task_status = '解析失败'"), any(), any(), any());
         verify(jdbcTemplate).update("UPDATE course_material SET parse_status = '解析失败' WHERE material_id = ?", "material-1");
+        verify(jdbcTemplate).update(contains("INSERT INTO ai_call_log"), any(), eq("teacher001"),
+                eq("material-1"), eq(""), eq("失败"), any(), anyString(), any());
+    }
+
+    @Test
+    void parseZipMaterialStoresSafePlaceholderWithoutExtracting() {
+        Path zip = tempDir.resolve("code.zip");
+        when(jdbcTemplate.queryForList(contains("FROM course_material"), eq("material-1")))
+                .thenReturn(List.of(material(zip, "zip")));
+        when(jdbcTemplate.queryForObject(contains("FROM course_class"), eq(Integer.class),
+                eq("course-java-001"), eq("teacher001"))).thenReturn(1);
+
+        Map<String, Object> result = aiContentService.parseMaterial(Map.of("material_id", "material-1"), teacher());
+
+        assertEquals("待确认", result.get("task_status"));
+        verify(jdbcTemplate).update(contains("SET task_status = '待确认'"), any(), any(), any());
+        verify(jdbcTemplate).update(contains("INSERT INTO ai_call_log"), any(), eq("teacher001"),
+                eq("material-1"), eq("压缩资料已保存元数据，暂不解压解析。"), eq("成功"), any(), eq(""), any());
     }
 
     @Test

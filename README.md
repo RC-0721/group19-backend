@@ -41,53 +41,67 @@ mvn clean package
 
 The jar file is generated under `target/` and must not be committed.
 
-## Server Deploy
+## Standalone Deploy From Repository
 
-Build the jar locally:
+Clone this repository on the target machine:
+
+```bash
+git clone https://github.com/RC-0721/group19-backend.git
+cd group19-backend
+```
+
+Prepare MySQL. The application reads database connection settings from environment variables.
+
+```bash
+mysql -u root -p
+```
+
+```sql
+CREATE DATABASE teaching_sys DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'teaching_user'@'localhost' IDENTIFIED BY '<password>';
+GRANT ALL PRIVILEGES ON teaching_sys.* TO 'teaching_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Initialize tables and seed data:
+
+```bash
+mysql -u teaching_user -p teaching_sys < src/main/resources/db/init-auth.sql
+mysql -u teaching_user -p teaching_sys < src/main/resources/db/init-business.sql
+```
+
+Configure runtime variables:
+
+```bash
+export MYSQL_HOST=127.0.0.1
+export MYSQL_PORT=3306
+export MYSQL_DATABASE=teaching_sys
+export MYSQL_USERNAME=teaching_user
+export MYSQL_PASSWORD=<password>
+export TEACHING_UPLOAD_DIR=/data/teaching-sys/uploads
+```
+
+Build and run:
 
 ```bash
 mvn clean package
+sudo mkdir -p /data/teaching-sys/logs /data/teaching-sys/uploads
+java -Xms128m -Xmx512m -jar target/teaching-sys-backend-0.0.1-SNAPSHOT.jar
 ```
 
-Upload the jar to the server:
+For background execution:
 
 ```bash
-scp -i <private-key.pem> target/teaching-sys-backend-0.0.1-SNAPSHOT.jar <user>@<server-ip>:/tmp/teaching-sys.jar
+nohup java -Xms128m -Xmx512m -jar target/teaching-sys-backend-0.0.1-SNAPSHOT.jar > /data/teaching-sys/logs/app.log 2>&1 &
 ```
 
-Move it into the deploy directory:
-
-```bash
-sudo mkdir -p /opt/teaching-sys /data/teaching-sys/logs /data/teaching-sys/uploads
-sudo mv /tmp/teaching-sys.jar /opt/teaching-sys/teaching-sys.jar
-```
-
-Run it with limited memory:
-
-```bash
-cd /opt/teaching-sys
-nohup java -Xms128m -Xmx512m -jar teaching-sys.jar > /data/teaching-sys/logs/app.log 2>&1 &
-```
-
-Verify locally on the server:
+Verify the local API:
 
 ```bash
 curl http://127.0.0.1:8080/api/health
 ```
 
-If Nginx proxies `/api/` to `127.0.0.1:8080`, verify from a browser or local terminal:
-
-```bash
-curl http://<server-ip>/api/health
-```
-
 ## Auth Login
-
-Initialize the minimal user table before testing login against MySQL:
-
-```bash
-mysql -u <user> -p <database> < src/main/resources/db/init-auth.sql
-```
 
 Required environment variables for runtime database access:
 
@@ -104,27 +118,48 @@ Login request:
 ```bash
 curl -X POST http://127.0.0.1:8080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"account":"20230301","password":"<password>","role":"STUDENT"}'
+  -d '{"account":"student001","password":"123456","role":"STUDENT"}'
 ```
 
-Current realistic integration accounts:
+Seed accounts from `src/main/resources/db/init-auth.sql`:
 
 | Account | Password | Role |
 | --- | --- | --- |
-| `20230301` | `<password>` | `STUDENT` |
-| `t2018015` | `<password>` | `TEACHER` |
-| `a2020006` | `<password>` | `EDU_ADMIN` |
+| `student001` | `123456` | `STUDENT` |
+| `teacher001` | `123456` | `TEACHER` |
+| `admin001` | `123456` | `EDU_ADMIN` |
 
-## Database Init And Regression
+## Database Init
 
-```powershell
-$env:MYSQL_PASSWORD = "<password>"
-.\scripts\verify_empty_database_init.ps1 -DbHost 127.0.0.1 -DbName teaching_sys -DbUser teaching_user
-.\scripts\verify_p0_public.ps1 -BaseUrl http://47.108.76.210
-.\scripts\verify_stage14_public.ps1 -BaseUrl http://47.108.76.210
+Use these scripts to initialize a standalone deployment database. Run them against the target MySQL database before starting the application.
+
+```bash
+mysql -u <user> -p <database> < src/main/resources/db/init-auth.sql
+mysql -u <user> -p <database> < src/main/resources/db/init-business.sql
 ```
 
-Stage 14 adds admin platform summary/health, operation log CSV export, AI call log paging, and teacher class report CSV export.
+Recommended runtime database variables:
+
+```bash
+export MYSQL_HOST=127.0.0.1
+export MYSQL_PORT=3306
+export MYSQL_DATABASE=teaching_sys
+export MYSQL_USERNAME=<user>
+export MYSQL_PASSWORD=<password>
+```
+
+Then start the application and verify the local API:
+
+```bash
+mvn spring-boot:run
+curl http://127.0.0.1:8080/api/health
+```
+
+Notes:
+
+- `init-auth.sql` creates the user table and seed accounts.
+- `init-business.sql` creates business tables and seed data.
+- Run the scripts on a new or disposable database for first-time setup. Back up existing data before rerunning them on a non-empty database.
 
 ## Backup And Restore
 

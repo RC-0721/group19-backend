@@ -25,6 +25,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @WebMvcTest(KnowledgeController.class)
 class KnowledgeControllerTest {
@@ -58,6 +59,24 @@ class KnowledgeControllerTest {
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.material_id").value("material-1"))
                 .andExpect(jsonPath("$.data.parse_task_id").value("parse-1"));
+    }
+
+    @Test
+    void uploadMaterialMapsMultipartOversizeToFileInvalid() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        MockMultipartFile file = new MockMultipartFile("file", "big.pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx".getBytes());
+        when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(knowledgeService.uploadMaterial(eq("course-java-001"), eq("chapter-java-001"), any(), eq(teacher)))
+                .thenThrow(new MaxUploadSizeExceededException(1024));
+
+        mockMvc.perform(multipart("/api/materials")
+                        .file(file)
+                        .header("token", "teacher-token")
+                        .param("course_id", "course-java-001")
+                        .param("chapter_id", "chapter-java-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("41301"));
     }
 
     @Test

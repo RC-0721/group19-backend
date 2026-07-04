@@ -29,6 +29,7 @@ public class AiContentService {
 
     private static final List<String> PARSEABLE_TYPES = List.of("txt", "md", "pdf", "doc", "docx", "ppt", "pptx");
     private static final List<String> VIDEO_TYPES = List.of("mp4", "mov", "avi", "mkv");
+    private static final List<String> ZIP_TYPES = List.of("zip");
     private static final List<String> QUESTION_TYPES = List.of("单选题", "多选题", "判断题", "简答题", "编程题");
 
     private final JdbcTemplate jdbcTemplate;
@@ -51,6 +52,7 @@ public class AiContentService {
 
         String taskId = "parse-" + UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
+        long start = System.currentTimeMillis();
         jdbcTemplate.update("""
                 INSERT INTO material_parse_task
                   (parse_task_id, material_id, task_type, task_status, created_by, started_time)
@@ -66,6 +68,8 @@ public class AiContentService {
                     WHERE parse_task_id = ?
                     """, json(result), Timestamp.valueOf(LocalDateTime.now()), taskId);
             jdbcTemplate.update("UPDATE course_material SET parse_status = '待确认' WHERE material_id = ?", materialId);
+            writeAiCallLog(taskId, actor, materialId, stringValue(result.get("summary")),
+                    "成功", System.currentTimeMillis() - start, null);
             return Map.of("parse_task_id", taskId, "task_status", "待确认", "material_id", materialId);
         } catch (RuntimeException exception) {
             String message = shortMessage(exception);
@@ -75,6 +79,7 @@ public class AiContentService {
                     WHERE parse_task_id = ?
                     """, message, Timestamp.valueOf(LocalDateTime.now()), taskId);
             jdbcTemplate.update("UPDATE course_material SET parse_status = '解析失败' WHERE material_id = ?", materialId);
+            writeAiCallLog(taskId, actor, materialId, "", "失败", System.currentTimeMillis() - start, message);
             return Map.of("parse_task_id", taskId, "task_status", "解析失败", "error_message", message);
         }
     }
@@ -359,6 +364,16 @@ public class AiContentService {
                     "raw", Map.of("file_name", fileName, "file_type", fileType)
             );
         }
+        if (ZIP_TYPES.contains(fileType)) {
+            return linkedMap(
+                    "material_id", materialId,
+                    "summary", "压缩资料已保存元数据，暂不解压解析。",
+                    "category", "压缩资料",
+                    "tags", List.of(fileType, "archive"),
+                    "chunks", List.of(),
+                    "raw", Map.of("file_name", fileName, "file_type", fileType)
+            );
+        }
         if (!PARSEABLE_TYPES.contains(fileType)) {
             throw new IllegalStateException("Unsupported material type: " + fileType);
         }
@@ -580,6 +595,17 @@ public class AiContentService {
                 SET task_status = '已完成', result_json = ?, finished_time = ?
                 WHERE task_id = ?
                 """, json(result), Timestamp.valueOf(LocalDateTime.now()), taskId);
+    }
+
+    private void writeAiCallLog(String requestId, User actor, String materialId, String output,
+                                String status, long durationMs, String errorMessage) {
+        jdbcTemplate.update("""
+                INSERT INTO ai_call_log
+                  (log_id, user_id, scene, model, prompt_version, input_summary, output_summary,
+                   call_status, duration_ms, error_message, request_id)
+                VALUES (?, ?, 'MATERIAL_PARSE', 'tika-local', 'v1', ?, ?, ?, ?, ?, ?)
+                """, "ai-log-" + UUID.randomUUID(), actor.getAccount(), materialId, limit(output, 500),
+                status, durationMs, limit(errorMessage, 500), requestId);
     }
 
     private void requireTeacherCourse(String courseId, User actor) {

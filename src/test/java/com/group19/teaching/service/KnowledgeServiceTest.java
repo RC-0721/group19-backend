@@ -20,7 +20,7 @@ import org.springframework.mock.web.MockMultipartFile;
 class KnowledgeServiceTest {
 
     private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
-    private final KnowledgeService knowledgeService = new KnowledgeService(jdbcTemplate, "target/test-uploads");
+    private final KnowledgeService knowledgeService = new KnowledgeService(jdbcTemplate, "target/test-uploads", 50);
 
     @Test
     void answerReturnsKnowledgeUnavailableWhenNoApprovedChunk() {
@@ -157,6 +157,39 @@ class KnowledgeServiceTest {
 
         assertEquals("report.pdf", result.get("file_name"));
         assertEquals("pdf", result.get("file_type"));
+    }
+
+    @Test
+    void uploadMaterialAcceptsZipAndCreatesParseTask() {
+        User actor = user(2L, "teacher001", "TEACHER");
+        MockMultipartFile file = new MockMultipartFile("file", "demo.zip", "application/zip", "zip".getBytes());
+        when(jdbcTemplate.queryForObject(contains("teacher_id = ?"), eq(Integer.class),
+                eq("course-java-001"), eq("teacher001"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(contains("FROM chapter"), eq(Integer.class),
+                eq("course-java-001"), eq("chapter-java-001"))).thenReturn(1);
+
+        Map<String, Object> result = knowledgeService.uploadMaterial(
+                "course-java-001", "chapter-java-001", file, actor);
+
+        assertEquals("待解析", result.get("parse_status"));
+        verify(jdbcTemplate).update(contains("INSERT INTO course_material"),
+                org.mockito.ArgumentMatchers.any(), eq("course-java-001"), eq("chapter-java-001"),
+                eq("demo.zip"), eq("zip"), org.mockito.ArgumentMatchers.any());
+        verify(jdbcTemplate).update(contains("INSERT INTO material_parse_task"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), eq("teacher001"),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void uploadMaterialRejectsConfiguredOversizeFile() {
+        KnowledgeService limitedService = new KnowledgeService(jdbcTemplate, "target/test-uploads", 0);
+        MockMultipartFile file = new MockMultipartFile("file", "demo.pdf", "application/pdf", "pdf".getBytes());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> limitedService.uploadMaterial("course-java-001", "chapter-java-001", file,
+                        user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.FILE_INVALID, exception.errorCode());
     }
 
     @Test

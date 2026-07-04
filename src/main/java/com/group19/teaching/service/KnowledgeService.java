@@ -22,17 +22,21 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class KnowledgeService {
 
-    private static final long MAX_FILE_SIZE = 20L * 1024 * 1024;
     private static final List<String> MATERIAL_STATUSES = List.of("待解析", "解析中", "待确认", "已确认", "已上传", "待审核", "已发布", "解析失败");
     private static final List<String> KNOWLEDGE_STATUSES = List.of("待审核", "已发布", "已驳回", "停用");
     private static final List<String> CHUNK_STATUSES = List.of("待审核", "已发布", "已驳回");
 
     private final JdbcTemplate jdbcTemplate;
     private final Path uploadDir;
+    private final long maxUploadBytes;
 
-    public KnowledgeService(JdbcTemplate jdbcTemplate, @Value("${teaching.upload-dir:data/uploads}") String uploadDir) {
+    public KnowledgeService(
+            JdbcTemplate jdbcTemplate,
+            @Value("${teaching.upload-dir:data/uploads}") String uploadDir,
+            @Value("${teaching.homework-upload.max-size-mb:50}") long maxSizeMb) {
         this.jdbcTemplate = jdbcTemplate;
         this.uploadDir = Path.of(uploadDir);
+        this.maxUploadBytes = maxSizeMb * 1024 * 1024;
     }
 
     public Map<String, Object> uploadFile(MultipartFile file, User actor) {
@@ -71,7 +75,7 @@ public class KnowledgeService {
         requireChapter(courseId, chapterId);
         String fileName = cleanFileName(file.getOriginalFilename());
         String fileType = fileType(fileName);
-        if (!List.of("txt", "md", "pdf", "doc", "docx", "ppt", "pptx", "mp4", "mov", "avi").contains(fileType)) {
+        if (!List.of("txt", "md", "pdf", "doc", "docx", "ppt", "pptx", "mp4", "mov", "avi", "zip").contains(fileType)) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
 
@@ -746,7 +750,7 @@ public class KnowledgeService {
     }
 
     private void rejectTooLarge(MultipartFile file) {
-        if (file.getSize() > MAX_FILE_SIZE) {
+        if (file.getSize() > maxUploadBytes) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
     }

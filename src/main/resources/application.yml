@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: teaching-sys-backend
+  servlet:
+    multipart:
+      max-file-size: ${TEACHING_MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${TEACHING_MULTIPART_MAX_REQUEST_SIZE:50MB}
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:teaching_sys}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: ${MYSQL_USERNAME:teaching_user}
