@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
@@ -46,6 +48,14 @@ public class AIInterviewController {
         return ApiResponse.success(interviewService.start(request, actor));
     }
 
+    @GetMapping("/api/interviews/sessions/{sessionId}")
+    public ApiResponse<Map<String, Object>> detail(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(interviewService.detail(sessionId, actor));
+    }
+
     @PostMapping("/api/interviews/{sessionId}/messages")
     public ApiResponse<Map<String, Object>> sendMessage(
             @RequestHeader(value = "token", required = false) String token,
@@ -53,6 +63,14 @@ public class AIInterviewController {
             @RequestBody Map<String, Object> request) {
         User actor = authService.requireRole(token, "STUDENT");
         return ApiResponse.success(interviewService.sendMessage(sessionId, request, actor));
+    }
+
+    @GetMapping("/api/interviews/{sessionId}/messages")
+    public ApiResponse<Map<String, Object>> listMessages(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(interviewService.listMessages(sessionId, actor));
     }
 
     @PostMapping("/api/interviews/{sessionId}/transcripts")
@@ -81,6 +99,18 @@ public class AIInterviewController {
         return ApiResponse.success(interviewService.bindMedia(sessionId, request, actor));
     }
 
+    @PostMapping(value = "/api/interviews/{sessionId}/media/upload",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Object>> uploadMedia(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId,
+            @RequestParam("media_type") String mediaType,
+            @RequestParam(value = "duration", required = false) Double duration,
+            @RequestPart("file") MultipartFile file) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return ApiResponse.success(interviewService.uploadMedia(sessionId, mediaType, duration, file, actor));
+    }
+
     @GetMapping("/api/interviews/{sessionId}/media")
     public ApiResponse<Map<String, Object>> listMedia(
             @RequestHeader(value = "token", required = false) String token,
@@ -96,6 +126,23 @@ public class AIInterviewController {
             @RequestBody Map<String, Object> request) {
         User actor = authService.requireRole(token, "STUDENT");
         return interviewService.streamMessage(sessionId, request, actor);
+    }
+
+    @PostMapping("/api/interviews/sessions/{sessionId}/finish")
+    public ApiResponse<Map<String, Object>> finish(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId,
+            @RequestBody(required = false) Map<String, Object> request) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return ApiResponse.success(interviewService.finish(sessionId, request, actor));
+    }
+
+    @PostMapping("/api/interviews/sessions/{sessionId}/report/generate")
+    public ApiResponse<Map<String, Object>> generateReport(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return ApiResponse.success(interviewService.generateReport(sessionId, actor));
     }
 
     @GetMapping("/api/interviews/sessions/{sessionId}/report")
