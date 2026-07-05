@@ -576,6 +576,22 @@ CREATE TABLE IF NOT EXISTS ai_session (
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'job_id');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN job_id VARCHAR(64) NOT NULL DEFAULT ''job-java-backend''', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'current_round');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN current_round INT NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'round_count');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN round_count INT NOT NULL DEFAULT 5', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'started_at');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN started_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'ended_at');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN ended_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_session' AND COLUMN_NAME = 'updated_time');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_session ADD COLUMN updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE ai_session SET started_at = created_time WHERE started_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS ai_message (
   message_id VARCHAR(64) PRIMARY KEY,
@@ -598,6 +614,42 @@ CREATE TABLE IF NOT EXISTS ai_interview_report (
   UNIQUE KEY uk_ai_report_session (session_id),
   INDEX idx_ai_report_job (job_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'overall_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN overall_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'expression_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN expression_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'technical_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN technical_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'project_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN project_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'logic_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN logic_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'strengths');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN strengths TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'weaknesses');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN weaknesses TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'suggestions');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN suggestions TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'next_actions');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN next_actions TEXT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'generated_time');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN generated_time DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE ai_interview_report
+SET overall_score = score,
+    strengths = strength,
+    weaknesses = weakness,
+    suggestions = suggestion
+WHERE overall_score IS NULL;
 
 CREATE TABLE IF NOT EXISTS ai_interview_transcript_segment (
   segment_id VARCHAR(64) PRIMARY KEY,
@@ -622,6 +674,16 @@ CREATE TABLE IF NOT EXISTS ai_interview_media (
   created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_interview_media_session_time (session_id, created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_media' AND COLUMN_NAME = 'file_size');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_media ADD COLUMN file_size BIGINT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_media' AND COLUMN_NAME = 'duration');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_media ADD COLUMN duration FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_media' AND COLUMN_NAME = 'created_at');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_media ADD COLUMN created_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE ai_interview_media SET created_at = created_time WHERE created_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS ability_profile (
   profile_id VARCHAR(64) PRIMARY KEY,

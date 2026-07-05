@@ -4,21 +4,27 @@ import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
@@ -28,27 +34,43 @@ public class AIInterviewService {
     private static final Set<String> TRANSCRIPT_SOURCES = Set.of("student_audio", "student_text", "ai_text", "manual");
     private static final Set<String> MEDIA_TYPES = Set.of("video", "screenshot", "audio");
     private static final Set<String> MEDIA_MIME_TYPES = Set.of("video/webm", "image/png", "image/jpeg");
+    private static final Set<String> VIDEO_MIME_TYPES = Set.of("video/webm", "video/mp4");
+    private static final Set<String> AUDIO_MIME_TYPES = Set.of("audio/webm", "audio/mpeg", "audio/mp4", "audio/wav");
+    private static final Set<String> SCREENSHOT_MIME_TYPES = Set.of("image/png", "image/jpeg");
+    private static final Set<String> VIDEO_EXTENSIONS = Set.of("webm", "mp4");
+    private static final Set<String> AUDIO_EXTENSIONS = Set.of("webm", "mp3", "m4a", "wav");
+    private static final Set<String> SCREENSHOT_EXTENSIONS = Set.of("png", "jpg", "jpeg");
 
     private final JdbcTemplate jdbcTemplate;
     private final AiService aiService;
     private final TransactionTemplate transactionTemplate;
+    private final Path uploadDir;
+    private final long maxUploadBytes;
 
     @Autowired
     public AIInterviewService(
             JdbcTemplate jdbcTemplate,
             AiService aiService,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            @Value("${teaching.upload-dir:data/uploads}") String uploadDir,
+            @Value("${teaching.homework-upload.max-size-mb:50}") long maxSizeMb) {
         this.jdbcTemplate = jdbcTemplate;
         this.aiService = aiService;
         this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
+        this.uploadDir = Path.of(uploadDir);
+        this.maxUploadBytes = maxSizeMb * 1024 * 1024;
     }
 
     AIInterviewService(JdbcTemplate jdbcTemplate, AiService aiService) {
-        this(jdbcTemplate, aiService, null);
+        this(jdbcTemplate, aiService, null, "data/uploads", 50);
     }
 
     AIInterviewService(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null, null);
+        this(jdbcTemplate, null, null, "data/uploads", 50);
+    }
+
+    AIInterviewService(JdbcTemplate jdbcTemplate, String uploadDir) {
+        this(jdbcTemplate, null, null, uploadDir, 50);
     }
 
     public Map<String, Object> list(
@@ -80,14 +102,18 @@ public class AIInterviewService {
         pageParams.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
                 SELECT s.session_id, s.student_id, s.job_id, s.scene, s.model, s.prompt_version,
-                       s.status, s.created_time, r.report_id, r.score
+                       s.status, s.current_round, s.round_count, s.started_at, s.ended_at,
+                       s.created_time, s.updated_time, r.report_id, r.score
                 FROM ai_session s
                 LEFT JOIN ai_interview_report r ON s.session_id = r.session_id
                 """ + where + """
                 ORDER BY s.created_time DESC, s.session_id
                 LIMIT ? OFFSET ?
                 """, pageParams.toArray());
-        return Map.of("records", records, "total", total == null ? 0 : total,
+        List<Map<String, Object>> enriched = records.stream()
+                .map(this::withCanGenerateReport)
+                .toList();
+        return Map.of("records", enriched, "total", total == null ? 0 : total,
                 "page_no", pageNo, "page_size", pageSize);
     }
 
@@ -100,8 +126,13 @@ public class AIInterviewService {
         String scene = stringValue(request.get("scene"));
         String difficultyLevel = stringValue(request.get("difficulty_level"));
         String promptVersion = stringValue(request.get("prompt_version"));
+        Integer roundCount = intValue(request.get("round_count"));
+        if (roundCount == null) {
+            roundCount = 5;
+        }
         if (!StringUtils.hasText(jobId) || !StringUtils.hasText(scene)
-                || !StringUtils.hasText(difficultyLevel) || !StringUtils.hasText(promptVersion)) {
+                || !StringUtils.hasText(difficultyLevel) || !StringUtils.hasText(promptVersion)
+                || roundCount < 1 || roundCount > 20) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         Map<String, Object> job = requireJob(jobId);
@@ -110,9 +141,12 @@ public class AIInterviewService {
         ChatResult question = chat(scene, "请结合" + job.get("job_name") + "方向，生成一道" + difficultyLevel + "面试开场题。",
                 actor, "请结合" + job.get("job_name") + "方向，说明你最熟悉的一项技术实践。");
         jdbcTemplate.update("""
-                INSERT INTO ai_session (session_id, student_id, job_id, scene, model, prompt_version, status, created_time)
-                VALUES (?, ?, ?, ?, ?, ?, '已创建', ?)
-                """, sessionId, actor.getAccount(), jobId, scene, question.model(), promptVersion, Timestamp.valueOf(now));
+                INSERT INTO ai_session
+                    (session_id, student_id, job_id, scene, model, prompt_version, status,
+                     current_round, round_count, started_at, created_time, updated_time)
+                VALUES (?, ?, ?, ?, ?, ?, '进行中', 0, ?, ?, ?, ?)
+                """, sessionId, actor.getAccount(), jobId, scene, question.model(), promptVersion,
+                roundCount, Timestamp.valueOf(now), Timestamp.valueOf(now), Timestamp.valueOf(now));
         if (aiService == null) {
             jdbcTemplate.update("""
                     INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
@@ -120,12 +154,38 @@ public class AIInterviewService {
                     """, "ai-log-" + UUID.randomUUID(), scene, MODEL, promptVersion,
                     "start:" + jobId + ":" + difficultyLevel, question.content());
         }
-        return Map.of("session_id", sessionId, "status", "已创建", "first_question", question.content());
+        return Map.of(
+                "session_id", sessionId,
+                "status", "进行中",
+                "first_question", question.content(),
+                "current_round", 0,
+                "round_count", roundCount,
+                "started_at", Timestamp.valueOf(now),
+                "can_generate_report", false
+        );
+    }
+
+    public Map<String, Object> detail(String sessionId, User actor) {
+        Map<String, Object> session = requireSessionDetail(sessionId);
+        requireSessionReadable(session, actor);
+        return withCanGenerateReport(session);
     }
 
     @Transactional
     public Map<String, Object> sendMessage(String sessionId, Map<String, Object> request, User actor) {
         return completeMessage(sessionId, request, actor);
+    }
+
+    public Map<String, Object> listMessages(String sessionId, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireSessionReadable(session, actor);
+        List<Map<String, Object>> messages = jdbcTemplate.queryForList("""
+                SELECT message_id, session_id, sender_type, message_content, reference_chunk, created_time
+                FROM ai_message
+                WHERE session_id = ?
+                ORDER BY created_time ASC, message_id ASC
+                """, sessionId);
+        return Map.of("messages", messages);
     }
 
     @Transactional
@@ -179,7 +239,11 @@ public class AIInterviewService {
         String fileUrl = stringValue(request.get("file_url"));
         String storagePath = stringValue(request.get("storage_path"));
         String mimeType = stringValue(request.get("mime_type"));
+        Double duration = doubleValue(request.get("duration"));
         if (!MEDIA_TYPES.contains(mediaType) || (!StringUtils.hasText(fileUrl) && !StringUtils.hasText(storagePath))) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (duration != null && duration < 0) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         if (StringUtils.hasText(mimeType) && !MEDIA_MIME_TYPES.contains(mimeType)) {
@@ -187,20 +251,80 @@ public class AIInterviewService {
         }
 
         String mediaId = "media-" + UUID.randomUUID();
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now());
         jdbcTemplate.update("""
                 INSERT INTO ai_interview_media
-                    (media_id, session_id, media_type, file_name, file_url, storage_path, mime_type, created_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, mediaId, sessionId, mediaType, fileName, fileUrl, storagePath, mimeType,
-                Timestamp.valueOf(LocalDateTime.now()));
+                    (media_id, session_id, media_type, file_name, file_url, storage_path, mime_type,
+                     file_size, duration, created_time, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                """, mediaId, sessionId, mediaType, fileName, fileUrl, storagePath, mimeType, duration, now, now);
         return Map.of("media_id", mediaId);
+    }
+
+    @Transactional
+    public Map<String, Object> uploadMedia(
+            String sessionId,
+            String mediaType,
+            Double duration,
+            MultipartFile file,
+            User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireStudentOwner(session, actor);
+        if (!MEDIA_TYPES.contains(mediaType) || file == null || file.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (duration != null && duration < 0) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (file.getSize() > maxUploadBytes) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        String originalName = cleanFileName(file.getOriginalFilename());
+        String extension = fileExtension(originalName);
+        String mimeType = StringUtils.hasText(file.getContentType()) ? file.getContentType().trim() : "";
+        validateMediaUploadType(mediaType, extension, mimeType);
+
+        String mediaId = "media-" + UUID.randomUUID();
+        String storedFileName = mediaId + "." + extension;
+        Path root = uploadDir.toAbsolutePath().normalize();
+        Path sessionDir = root.resolve("interviews").resolve(sessionId).normalize();
+        Path target = sessionDir.resolve(storedFileName).normalize();
+        if (!target.startsWith(root)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        try {
+            Files.createDirectories(sessionDir);
+            file.transferTo(target);
+        } catch (IOException exception) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+
+        String storagePath = target.toString();
+        String fileUrl = "/uploads/interviews/" + sessionId + "/" + storedFileName;
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+        jdbcTemplate.update("""
+                INSERT INTO ai_interview_media
+                    (media_id, session_id, media_type, file_name, file_url, storage_path, mime_type,
+                     file_size, duration, created_time, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, mediaId, sessionId, mediaType, originalName, fileUrl, storagePath, mimeType,
+                file.getSize(), duration, now, now);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("media_id", mediaId);
+        result.put("file_url", fileUrl);
+        result.put("storage_path", storagePath);
+        result.put("mime_type", mimeType);
+        result.put("duration", duration);
+        result.put("created_at", now);
+        return result;
     }
 
     public Map<String, Object> listMedia(String sessionId, User actor) {
         Map<String, Object> session = requireSession(sessionId);
         requireSessionReadable(session, actor);
         List<Map<String, Object>> media = jdbcTemplate.queryForList("""
-                SELECT media_id, session_id, media_type, file_name, file_url, storage_path, mime_type, created_time
+                SELECT media_id, session_id, media_type, file_name, file_url, storage_path, mime_type,
+                       file_size, duration, created_time, created_at
                 FROM ai_interview_media
                 WHERE session_id = ?
                 ORDER BY created_time ASC, media_id ASC
@@ -213,6 +337,7 @@ public class AIInterviewService {
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
+                emitter.send(SseEmitter.event().name("thinking").data(Map.of("status", "thinking")));
                 Map<String, Object> result = runInTransaction(() -> completeMessage(sessionId, request, actor));
                 emitter.send(SseEmitter.event().name("meta").data(Map.of(
                         "message_id", result.get("message_id"),
@@ -220,7 +345,7 @@ public class AIInterviewService {
                         "status", result.get("status")
                 )));
                 sendChunks(emitter, stringValue(result.get("message_content")));
-                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                emitter.send(SseEmitter.event().name("done").data(result));
                 emitter.complete();
             } catch (BusinessException exception) {
                 sendError(emitter, exception.errorCode().code(), exception.errorCode().message());
@@ -252,23 +377,11 @@ public class AIInterviewService {
                 INSERT INTO ai_message (message_id, session_id, sender_type, message_content, reference_chunk, created_time)
                 VALUES (?, ?, 'AI', ?, ?, ?)
                 """, aiMessageId, sessionId, aiContent, referenceChunk, Timestamp.valueOf(now));
-        jdbcTemplate.update("UPDATE ai_session SET status = '已完成' WHERE session_id = ?", sessionId);
-
-        String reportId = reportId(sessionId);
-        String jobId = stringValue(session.get("job_id"));
-        Double score = 82.0;
         jdbcTemplate.update("""
-                INSERT INTO ai_interview_report (report_id, session_id, job_id, score, strength, weakness, suggestion)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE score = VALUES(score), strength = VALUES(strength),
-                    weakness = VALUES(weakness), suggestion = VALUES(suggestion)
-                """, reportId, sessionId, jobId, score, "能围绕岗位技术作答",
-                "项目化表达和细节验证不足", "继续练习 Spring Boot、数据库和缓存场景题");
-        jdbcTemplate.update("""
-                INSERT INTO ability_evidence (evidence_id, student_id, source_type, source_id, skill_id, score)
-                VALUES (?, ?, 'AI_INTERVIEW', ?, ?, ?)
-                ON DUPLICATE KEY UPDATE skill_id = VALUES(skill_id), score = VALUES(score)
-                """, "evidence-" + UUID.randomUUID(), actor.getAccount(), reportId, firstSkillId(jobId), score);
+                UPDATE ai_session
+                SET current_round = current_round + 1, updated_time = ?
+                WHERE session_id = ?
+                """, Timestamp.valueOf(now), sessionId);
         if (aiService == null) {
             jdbcTemplate.update("""
                     INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
@@ -276,8 +389,18 @@ public class AIInterviewService {
                     """, "ai-log-" + UUID.randomUUID(), stringValue(session.get("scene")), MODEL,
                     stringValue(session.get("prompt_version")), content, aiContent);
         }
-        return Map.of("message_id", aiMessageId, "message_content", aiContent,
-                "reference_chunk", referenceChunk, "status", "已完成");
+        int currentRound = Math.max(0, intValue(session.get("current_round"), 0)) + 1;
+        int roundCount = Math.max(1, intValue(session.get("round_count"), 5));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("message_id", aiMessageId);
+        result.put("message_content", aiContent);
+        result.put("reference_chunk", referenceChunk);
+        result.put("status", StringUtils.hasText(stringValue(session.get("status")))
+                ? stringValue(session.get("status")) : "进行中");
+        result.put("current_round", currentRound);
+        result.put("round_count", roundCount);
+        result.put("can_generate_report", currentRound >= roundCount);
+        return result;
     }
 
     private void validateMessageRequest(String sessionId, Map<String, Object> request) {
@@ -309,9 +432,98 @@ public class AIInterviewService {
         emitter.complete();
     }
 
+    @Transactional
+    public Map<String, Object> finish(String sessionId, Map<String, Object> request, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireStudentOwner(session, actor);
+        Timestamp endedAt = Timestamp.valueOf(LocalDateTime.now());
+        if (!"已完成".equals(stringValue(session.get("status"))) || session.get("ended_at") == null) {
+            jdbcTemplate.update("""
+                    UPDATE ai_session
+                    SET status = '已完成', ended_at = ?, updated_time = ?
+                    WHERE session_id = ?
+                    """, endedAt, endedAt, sessionId);
+        } else {
+            Object existingEndedAt = session.get("ended_at");
+            if (existingEndedAt instanceof Timestamp timestamp) {
+                endedAt = timestamp;
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session_id", sessionId);
+        result.put("status", "已完成");
+        result.put("current_round", intValue(session.get("current_round"), 0));
+        result.put("round_count", intValue(session.get("round_count"), 5));
+        result.put("ended_at", endedAt);
+        result.put("can_generate_report", true);
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> generateReport(String sessionId, User actor) {
+        Map<String, Object> session = requireSession(sessionId);
+        requireStudentOwner(session, actor);
+        if (!canGenerateReport(session, false)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String reportId = reportId(sessionId);
+        String jobId = stringValue(session.get("job_id"));
+        Timestamp generatedTime = Timestamp.valueOf(LocalDateTime.now());
+        double overallScore = 82.0;
+        double expressionScore = 80.0;
+        double technicalScore = 84.0;
+        double projectScore = 78.0;
+        double logicScore = 86.0;
+        String strengths = "能围绕岗位技术作答；基础概念较清晰";
+        String weaknesses = "项目化表达和细节验证不足";
+        String suggestions = "继续练习 Spring Boot、数据库和缓存场景题";
+        String nextActions = "补充一个项目复盘；练习 3 道 Redis 场景题；复盘一次完整面试记录";
+
+        jdbcTemplate.update("""
+                INSERT INTO ai_interview_report
+                    (report_id, session_id, job_id, score, strength, weakness, suggestion,
+                     overall_score, expression_score, technical_score, project_score, logic_score,
+                     strengths, weaknesses, suggestions, next_actions, generated_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE score = VALUES(score), strength = VALUES(strength),
+                    weakness = VALUES(weakness), suggestion = VALUES(suggestion),
+                    overall_score = VALUES(overall_score), expression_score = VALUES(expression_score),
+                    technical_score = VALUES(technical_score), project_score = VALUES(project_score),
+                    logic_score = VALUES(logic_score), strengths = VALUES(strengths),
+                    weaknesses = VALUES(weaknesses), suggestions = VALUES(suggestions),
+                    next_actions = VALUES(next_actions), generated_time = VALUES(generated_time)
+                """, reportId, sessionId, jobId, overallScore, strengths, weaknesses, suggestions,
+                overallScore, expressionScore, technicalScore, projectScore, logicScore,
+                strengths, weaknesses, suggestions, nextActions, generatedTime);
+        jdbcTemplate.update("""
+                INSERT INTO ability_evidence (evidence_id, student_id, source_type, source_id, skill_id, score)
+                VALUES (?, ?, 'AI_INTERVIEW', ?, ?, ?)
+                ON DUPLICATE KEY UPDATE skill_id = VALUES(skill_id), score = VALUES(score)
+                """, "evidence-" + UUID.randomUUID(), actor.getAccount(), reportId, firstSkillId(jobId), overallScore);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("report_id", reportId);
+        result.put("session_id", sessionId);
+        result.put("job_id", jobId);
+        result.put("overall_score", overallScore);
+        result.put("expression_score", expressionScore);
+        result.put("technical_score", technicalScore);
+        result.put("project_score", projectScore);
+        result.put("logic_score", logicScore);
+        result.put("strengths", strengths);
+        result.put("weaknesses", weaknesses);
+        result.put("suggestions", suggestions);
+        result.put("next_actions", nextActions);
+        result.put("generated_time", generatedTime);
+        return result;
+    }
+
     public Map<String, Object> report(String sessionId, User actor) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT r.report_id, r.job_id, r.score, r.strength, r.weakness, r.suggestion, s.student_id
+                SELECT r.report_id, r.job_id, r.score, r.strength, r.weakness, r.suggestion,
+                       r.overall_score, r.expression_score, r.technical_score, r.project_score,
+                       r.logic_score, r.strengths, r.weaknesses, r.suggestions, r.next_actions,
+                       r.generated_time, s.student_id
                 FROM ai_interview_report r
                 JOIN ai_session s ON r.session_id = s.session_id
                 WHERE r.session_id = ?
@@ -328,14 +540,24 @@ public class AIInterviewService {
         if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
             requireTeacherStudent(studentId, actor.getAccount());
         }
-        return Map.of(
-                "report_id", report.get("report_id"),
-                "job_id", report.get("job_id"),
-                "score", report.get("score"),
-                "strength", report.get("strength"),
-                "weakness", report.get("weakness"),
-                "suggestion", report.get("suggestion")
-        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("report_id", report.get("report_id"));
+        result.put("job_id", report.get("job_id"));
+        result.put("score", report.get("score"));
+        result.put("strength", report.get("strength"));
+        result.put("weakness", report.get("weakness"));
+        result.put("suggestion", report.get("suggestion"));
+        result.put("overall_score", report.get("overall_score"));
+        result.put("expression_score", report.get("expression_score"));
+        result.put("technical_score", report.get("technical_score"));
+        result.put("project_score", report.get("project_score"));
+        result.put("logic_score", report.get("logic_score"));
+        result.put("strengths", report.get("strengths"));
+        result.put("weaknesses", report.get("weaknesses"));
+        result.put("suggestions", report.get("suggestions"));
+        result.put("next_actions", report.get("next_actions"));
+        result.put("generated_time", report.get("generated_time"));
+        return result;
     }
 
     private Map<String, Object> requireJob(String jobId) {
@@ -353,7 +575,8 @@ public class AIInterviewService {
 
     private Map<String, Object> requireSession(String sessionId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT session_id, student_id, job_id, scene, prompt_version
+                SELECT session_id, student_id, job_id, scene, model, prompt_version, status,
+                       current_round, round_count, started_at, ended_at, created_time, updated_time
                 FROM ai_session
                 WHERE session_id = ?
                 LIMIT 1
@@ -362,6 +585,39 @@ public class AIInterviewService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         return rows.get(0);
+    }
+
+    private Map<String, Object> requireSessionDetail(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT s.session_id, s.student_id, s.job_id, s.scene, s.model, s.prompt_version,
+                       s.status, s.current_round, s.round_count, s.started_at, s.ended_at,
+                       s.created_time, s.updated_time, r.report_id, r.score
+                FROM ai_session s
+                LEFT JOIN ai_interview_report r ON s.session_id = r.session_id
+                WHERE s.session_id = ?
+                LIMIT 1
+                """, sessionId);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> withCanGenerateReport(Map<String, Object> row) {
+        Map<String, Object> result = new LinkedHashMap<>(row);
+        result.putIfAbsent("current_round", 0);
+        result.putIfAbsent("round_count", 5);
+        boolean hasReport = StringUtils.hasText(stringValue(row.get("report_id")));
+        result.put("can_generate_report", canGenerateReport(row, hasReport));
+        return result;
+    }
+
+    private boolean canGenerateReport(Map<String, Object> session, boolean hasReport) {
+        boolean finished = "已完成".equals(stringValue(session.get("status")));
+        Integer currentRound = intValue(session.get("current_round"));
+        Integer roundCount = intValue(session.get("round_count"));
+        boolean enoughRounds = currentRound != null && roundCount != null && currentRound >= roundCount;
+        return hasReport || finished || enoughRounds;
     }
 
     private void requireSessionReadable(Map<String, Object> session, User actor) {
@@ -456,6 +712,45 @@ public class AIInterviewService {
         }
     }
 
+    private void validateMediaUploadType(String mediaType, String extension, String mimeType) {
+        if ("video".equals(mediaType)
+                && VIDEO_EXTENSIONS.contains(extension)
+                && VIDEO_MIME_TYPES.contains(mimeType)) {
+            return;
+        }
+        if ("audio".equals(mediaType)
+                && AUDIO_EXTENSIONS.contains(extension)
+                && AUDIO_MIME_TYPES.contains(mimeType)) {
+            return;
+        }
+        if ("screenshot".equals(mediaType)
+                && SCREENSHOT_EXTENSIONS.contains(extension)
+                && SCREENSHOT_MIME_TYPES.contains(mimeType)) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FILE_INVALID);
+    }
+
+    private String cleanFileName(String filename) {
+        String value = StringUtils.hasText(filename) ? filename.trim() : "";
+        if (value.contains("/") || value.contains("\\") || ".".equals(value) || "..".equals(value)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        value = Path.of(value).getFileName().toString();
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        return value;
+    }
+
+    private String fileExtension(String filename) {
+        int dot = filename.lastIndexOf('.');
+        if (dot < 0 || dot == filename.length() - 1) {
+            throw new BusinessException(ErrorCode.FILE_INVALID);
+        }
+        return filename.substring(dot + 1).toLowerCase(Locale.ROOT);
+    }
+
     private ChatResult chat(String scene, String prompt, User actor, String fallbackContent) {
         if (aiService == null) {
             return new ChatResult(MODEL, fallbackContent);
@@ -481,6 +776,26 @@ public class AIInterviewService {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        String text = stringValue(value);
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private int intValue(Object value, int defaultValue) {
+        Integer parsed = intValue(value);
+        return parsed == null ? defaultValue : parsed;
     }
 
     private Boolean booleanValue(Object value) {
