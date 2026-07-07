@@ -340,16 +340,27 @@ public class HomeworkService {
         pageParams.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
                 SELECT hs.submit_id, hs.homework_id, hs.student_id, hs.submit_content, hs.attachment_path,
+                       COALESCE(u.name, hs.student_id) AS student_name,
                        hs.submit_status, hs.submit_time, hr.review_id, hr.ai_score, hr.teacher_score,
                        hr.ai_comment, hr.teacher_comment, hr.review_time
                 FROM homework_submit hs
                 LEFT JOIN homework_review hr ON hs.submit_id = hr.submit_id
+                LEFT JOIN sys_user u ON u.account = hs.student_id
                 """ + where + """
                 ORDER BY hs.submit_time DESC, hs.submit_id
                 LIMIT ? OFFSET ?
                 """, pageParams.toArray());
+        List<Map<String, Object>> enrichedRecords = records.stream()
+                .<Map<String, Object>>map(row -> {
+                    Map<String, Object> item = new LinkedHashMap<>(row);
+                    Map<String, Object> aiReview = new LinkedHashMap<>();
+                    aiReview.put("score", item.get("ai_score"));
+                    aiReview.put("comment", item.get("ai_comment"));
+                    item.put("ai_review", aiReview);
+                    return item;
+                }).toList();
         return Map.of(
-                "records", records,
+                "records", enrichedRecords,
                 "total", total == null ? 0 : total,
                 "page_no", pageNo,
                 "page_size", pageSize

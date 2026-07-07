@@ -81,6 +81,10 @@ class StudentDashboardServiceTest {
         assertEquals(50, ((Map<?, ?>) ((List<?>) result.get("courses")).get(0)).get("progress"));
         assertEquals("MySQL 基础", ((Map<?, ?>) result.get("practice_summary")).get("weak_point"));
         assertEquals("补做岗位题目", ((Map<?, ?>) result.get("profile_summary")).get("recommendation"));
+        assertEquals("student001", ((Map<?, ?>) result.get("profile_summary")).get("student_id"));
+        assertEquals("student001", ((Map<?, ?>) result.get("profile_summary")).get("account"));
+        assertEquals("job-java-backend", ((Map<?, ?>) result.get("profile_summary")).get("job_id"));
+        assertEquals("Java 后端开发工程师", ((Map<?, ?>) result.get("profile_summary")).get("job_name"));
     }
 
     @Test
@@ -95,6 +99,8 @@ class StudentDashboardServiceTest {
         assertEquals(0, ((Map<?, ?>) result.get("project_summary")).get("submitted_count"));
         assertEquals(0, ((Map<?, ?>) result.get("interview_summary")).get("completed_count"));
         assertEquals("数据不足", ((Map<?, ?>) result.get("profile_summary")).get("profile_status"));
+        assertEquals("student404", ((Map<?, ?>) result.get("profile_summary")).get("student_id"));
+        assertEquals("", ((Map<?, ?>) result.get("profile_summary")).get("job_id"));
     }
 
     @Test

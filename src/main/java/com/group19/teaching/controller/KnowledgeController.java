@@ -74,6 +74,16 @@ public class KnowledgeController {
         return ApiResponse.success(knowledgeService.uploadFile(file, actor));
     }
 
+    @GetMapping("/api/files")
+    public ApiResponse<Map<String, Object>> listFiles(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "scope", required = false) String scope,
+            @RequestParam(value = "page_no", required = false) Integer pageNo,
+            @RequestParam(value = "page_size", required = false) Integer pageSize) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(knowledgeService.listFiles(scope, pageNo, pageSize, actor));
+    }
+
     @GetMapping("/api/knowledge/chunks")
     public ApiResponse<Map<String, Object>> chunks(
             @RequestHeader(value = "token", required = false) String token,

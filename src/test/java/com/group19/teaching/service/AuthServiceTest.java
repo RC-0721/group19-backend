@@ -64,7 +64,10 @@ class AuthServiceTest {
     void currentUserReturnsStudentProfileWithoutPasswordHash() {
         when(jdbcTemplate.queryForList(anyString(), eq("student001"))).thenReturn(List.of(Map.of(
                 "student_id", "student001",
-                "class_id", "class-cs-2026"
+                "class_id", "class-cs-2026",
+                "target_job_id", "job-java-backend",
+                "job_id", "job-java-backend",
+                "job_name", "Java 后端开发工程师"
         )));
         LoginResponse response = authService.login(new LoginRequest("student001", "123456", "STUDENT"));
 
@@ -74,6 +77,9 @@ class AuthServiceTest {
         assertEquals("ALL", result.get("permission_scope"));
         assertFalse(result.containsKey("password_hash"));
         assertEquals("student001", ((Map<?, ?>) result.get("profile")).get("student_id"));
+        assertEquals("student001", ((Map<?, ?>) result.get("profile")).get("account"));
+        assertEquals("job-java-backend", ((Map<?, ?>) result.get("profile")).get("job_id"));
+        assertEquals("Java 后端开发工程师", ((Map<?, ?>) result.get("profile")).get("job_name"));
     }
 
     @Test

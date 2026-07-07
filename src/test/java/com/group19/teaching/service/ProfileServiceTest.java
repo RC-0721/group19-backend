@@ -43,8 +43,8 @@ class ProfileServiceTest {
     @Test
     void getAllowsTeacherByStudentProfileClass() {
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("student002"), eq("teacher001"))).thenReturn(1);
-        when(jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
-                .thenReturn(List.of(Map.of("job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList("SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
         when(jdbcTemplate.queryForList(anyString(), eq("student002"))).thenReturn(List.of());
         when(jdbcTemplate.queryForList(anyString(), eq("student002"), eq("job-java-backend"))).thenReturn(List.of());
         when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.startsWith("profile-"))).thenReturn(List.of());
@@ -56,8 +56,8 @@ class ProfileServiceTest {
 
     @Test
     void getCreatesProfile() {
-        when(jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
-                .thenReturn(List.of(Map.of("job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList("SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
         when(jdbcTemplate.queryForList(anyString(), eq("student001"))).thenReturn(List.of(Map.of(
                 "evidence_id", "evidence-1",
                 "score", 82.0
@@ -68,7 +68,34 @@ class ProfileServiceTest {
         Map<String, Object> result = profileService.get("student001", "job-java-backend", user("student001", "STUDENT"));
 
         assertEquals(true, String.valueOf(result.get("profile_id")).startsWith("profile-"));
+        assertEquals("student001", result.get("student_id"));
+        assertEquals("student001", result.get("account"));
+        assertEquals("job-java-backend", result.get("target_job_id"));
+        assertEquals("job-java-backend", result.get("job_id"));
+        assertEquals("Java 后端开发工程师", result.get("job_name"));
         assertEquals(1, ((List<?>) result.get("evidences")).size());
+    }
+
+    @Test
+    void getUsesTargetJobWhenJobIdIsMissing() {
+        when(jdbcTemplate.queryForList(
+                org.mockito.ArgumentMatchers.contains("SELECT target_job_id"),
+                eq("student001"), eq("student001"), eq("student001")))
+                .thenReturn(List.of(Map.of("target_job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList("SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"))).thenReturn(List.of(Map.of(
+                "evidence_id", "evidence-1",
+                "score", 82.0
+        )));
+        when(jdbcTemplate.queryForList(anyString(), eq("student001"), eq("job-java-backend"))).thenReturn(List.of());
+        when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.startsWith("profile-"))).thenReturn(List.of());
+
+        Map<String, Object> result = profileService.get("student001", null, user("student001", "STUDENT"));
+
+        assertEquals("job-java-backend", result.get("target_job_id"));
+        assertEquals("job-java-backend", result.get("job_id"));
+        assertEquals("Java 后端开发工程师", result.get("job_name"));
     }
 
     @Test
@@ -145,8 +172,8 @@ class ProfileServiceTest {
     void classAnalysisFiltersByJob() {
         when(jdbcTemplate.queryForList("SELECT class_id FROM class WHERE class_id = ? LIMIT 1", "class-cs-2026"))
                 .thenReturn(List.of(Map.of("class_id", "class-cs-2026")));
-        when(jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
-                .thenReturn(List.of(Map.of("job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList("SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("class-cs-2026"), eq("teacher001"))).thenReturn(1);
         when(jdbcTemplate.queryForList(anyString(), eq("class-cs-2026"), eq("job-java-backend"))).thenReturn(List.of(Map.of(
                 "student_id", "student001",
@@ -165,8 +192,8 @@ class ProfileServiceTest {
 
     @Test
     void refreshReturnsProfileStatus() {
-        when(jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
-                .thenReturn(List.of(Map.of("job_id", "job-java-backend")));
+        when(jdbcTemplate.queryForList("SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", "job-java-backend"))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
         when(jdbcTemplate.queryForList(anyString(), eq("student001"))).thenReturn(List.of(Map.of(
                 "evidence_id", "evidence-1",
                 "score", 82.0

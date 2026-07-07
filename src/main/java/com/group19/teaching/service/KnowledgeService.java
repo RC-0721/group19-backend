@@ -39,6 +39,7 @@ public class KnowledgeService {
         this.maxUploadBytes = maxSizeMb * 1024 * 1024;
     }
 
+    @Transactional
     public Map<String, Object> uploadFile(MultipartFile file, User actor) {
         if (actor == null || file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
@@ -50,18 +51,76 @@ public class KnowledgeService {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
 
+        String fileId = "file-" + UUID.randomUUID();
         Path root = uploadDir.toAbsolutePath().normalize();
-        Path target = root.resolve("file-" + UUID.randomUUID() + "." + fileType).normalize();
+        Path target = root.resolve(fileId + "." + fileType).normalize();
         if (!target.startsWith(root)) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
+        LocalDateTime createdTime = LocalDateTime.now();
         try {
             Files.createDirectories(root);
             file.transferTo(target);
+            jdbcTemplate.update("""
+                    INSERT INTO uploaded_file
+                      (file_id, owner_id, owner_role, scope, file_name, file_type, mime_type, file_size,
+                       storage_path, file_url, created_time)
+                    VALUES (?, ?, ?, 'GENERAL', ?, ?, ?, ?, ?, NULL, ?)
+                    """, fileId, actor.getAccount(), actor.getRole(), fileName, fileType,
+                    file.getContentType(), file.getSize(), target.toString(), createdTime);
         } catch (IOException exception) {
             throw new BusinessException(ErrorCode.FILE_INVALID);
         }
-        return Map.of("file_name", fileName, "file_type", fileType, "storage_path", target.toString());
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("file_name", fileName);
+        result.put("file_type", fileType);
+        result.put("storage_path", target.toString());
+        result.put("file_id", fileId);
+        result.put("file_size", file.getSize());
+        result.put("created_time", createdTime);
+        return result;
+    }
+
+    public Map<String, Object> listFiles(String scope, Integer pageNo, Integer pageSize, User actor) {
+        if (actor == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED);
+        }
+        int normalizedPageNo = pageNo == null ? 1 : pageNo;
+        int normalizedPageSize = pageSize == null ? 20 : pageSize;
+        validatePage(normalizedPageNo, normalizedPageSize);
+
+        List<Object> params = new ArrayList<>();
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if (StringUtils.hasText(scope)) {
+            where.append("AND scope = ?\n");
+            params.add(scope.trim());
+        }
+        if ("STUDENT".equalsIgnoreCase(actor.getRole()) || "TEACHER".equalsIgnoreCase(actor.getRole())) {
+            where.append("AND owner_id = ?\n");
+            params.add(actor.getAccount());
+        } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM uploaded_file " + where,
+                Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(normalizedPageSize);
+        pageParams.add((normalizedPageNo - 1) * normalizedPageSize);
+        List<Map<String, Object>> items = jdbcTemplate.queryForList("""
+                SELECT file_id, owner_id, owner_role, scope, file_name, file_type, mime_type, file_size,
+                       storage_path, file_url, created_time
+                FROM uploaded_file
+                """ + where + """
+                ORDER BY created_time DESC, file_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("items", items);
+        result.put("page_no", normalizedPageNo);
+        result.put("page_size", normalizedPageSize);
+        result.put("total", total == null ? 0 : total);
+        return result;
     }
 
     @Transactional

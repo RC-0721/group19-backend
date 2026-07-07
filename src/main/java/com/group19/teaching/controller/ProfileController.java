@@ -30,7 +30,7 @@ public class ProfileController {
     public ApiResponse<Map<String, Object>> get(
             @RequestHeader(value = "token", required = false) String token,
             @PathVariable String studentId,
-            @RequestParam("job_id") String jobId) {
+            @RequestParam(value = "job_id", required = false) String jobId) {
         User actor = authService.requireRole(token, "STUDENT", "TEACHER");
         return ApiResponse.success(profileService.get(studentId, jobId, actor));
     }

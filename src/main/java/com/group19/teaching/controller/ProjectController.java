@@ -28,13 +28,14 @@ public class ProjectController {
     @GetMapping("/api/projects")
     public ApiResponse<Map<String, Object>> list(
             @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
             @RequestParam(value = "course_id", required = false) String courseId,
             @RequestParam(value = "job_id", required = false) String jobId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
         User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
-        return ApiResponse.success(projectService.list(courseId, jobId, status, pageNo, pageSize, actor));
+        return ApiResponse.success(projectService.list(courseClassId, courseId, jobId, status, pageNo, pageSize, actor));
     }
 
     @PostMapping("/api/project-standards")

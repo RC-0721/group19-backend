@@ -49,6 +49,21 @@ class ProfileControllerTest {
     }
 
     @Test
+    void getAllowsMissingJobId() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER")).thenReturn(student);
+        when(profileService.get("student001", null, student)).thenReturn(Map.of(
+                "profile_id", "profile-1",
+                "job_id", "job-java-backend"
+        ));
+
+        mockMvc.perform(get("/api/profiles/student001")
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.job_id").value("job-java-backend"));
+    }
+
+    @Test
     void classAnalysisReturnsSummary() throws Exception {
         User teacher = user("teacher001", "TEACHER");
         when(authService.requireRole("teacher-token", "TEACHER")).thenReturn(teacher);

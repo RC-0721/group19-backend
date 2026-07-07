@@ -27,6 +27,13 @@ public class QuestionController {
         this.authService = authService;
     }
 
+    @GetMapping("/metadata")
+    public ApiResponse<Map<String, Object>> metadata(
+            @RequestHeader(value = "token", required = false) String token) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(questionService.metadata(actor));
+    }
+
     @GetMapping
     public ApiResponse<Map<String, Object>> list(
             @RequestHeader(value = "token", required = false) String token,

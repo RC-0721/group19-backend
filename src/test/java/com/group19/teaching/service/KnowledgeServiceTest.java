@@ -155,8 +155,45 @@ class KnowledgeServiceTest {
 
         Map<String, Object> result = knowledgeService.uploadFile(file, user("student001", "STUDENT"));
 
+        assertEquals(true, String.valueOf(result.get("file_id")).startsWith("file-"));
         assertEquals("report.pdf", result.get("file_name"));
         assertEquals("pdf", result.get("file_type"));
+        assertEquals(3L, result.get("file_size"));
+        verify(jdbcTemplate).update(contains("INSERT INTO uploaded_file"),
+                org.mockito.ArgumentMatchers.any(), eq("student001"), eq("STUDENT"), eq("report.pdf"),
+                eq("pdf"), eq("application/pdf"), eq(3L), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void listFilesRestrictsStudentToOwnUploads() {
+        when(jdbcTemplate.queryForObject(contains("SELECT COUNT(*) FROM uploaded_file"), eq(Integer.class),
+                eq("GENERAL"), eq("student001"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(contains("FROM uploaded_file"),
+                eq("GENERAL"), eq("student001"), eq(20), eq(0)))
+                .thenReturn(List.of(Map.of("file_id", "file-1", "owner_id", "student001")));
+
+        Map<String, Object> result = knowledgeService.listFiles("GENERAL", null, null,
+                user("student001", "STUDENT"));
+
+        assertEquals(1, result.get("total"));
+        assertEquals(20, result.get("page_size"));
+        assertEquals(1, ((List<?>) result.get("items")).size());
+    }
+
+    @Test
+    void listFilesLetsAdminSeeAllUploads() {
+        when(jdbcTemplate.queryForObject(contains("SELECT COUNT(*) FROM uploaded_file"), eq(Integer.class),
+                org.mockito.ArgumentMatchers.<Object[]>any()))
+                .thenReturn(2);
+        when(jdbcTemplate.queryForList(contains("FROM uploaded_file"), eq(10), eq(10)))
+                .thenReturn(List.of(Map.of("file_id", "file-2")));
+
+        Map<String, Object> result = knowledgeService.listFiles(null, 2, 10,
+                user("admin001", "EDU_ADMIN"));
+
+        assertEquals(2, result.get("total"));
+        assertEquals(2, result.get("page_no"));
     }
 
     @Test

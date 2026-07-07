@@ -76,6 +76,27 @@ class QuestionControllerTest {
     }
 
     @Test
+    void metadataReturnsQuestionFilters() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(questionService.metadata(student)).thenReturn(Map.of(
+                "question_types", List.of(Map.of("value", "简答题", "label", "简答题")),
+                "difficulties", List.of(Map.of("value", "中等", "label", "中等")),
+                "knowledge_points", List.of(Map.of("knowledge_id", "kp-001", "knowledge_name", "Java 基础")),
+                "jobs", List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")),
+                "tech_stacks", List.of(Map.of("tech_id", "tech-001", "tech_name", "Java", "job_id", "job-java-backend")),
+                "audit_statuses", List.of(Map.of("value", "已发布", "label", "已发布"))
+        ));
+
+        mockMvc.perform(get("/api/questions/metadata").header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.question_types[0].value").value("简答题"))
+                .andExpect(jsonPath("$.data.knowledge_points[0].knowledge_id").value("kp-001"))
+                .andExpect(jsonPath("$.data.audit_statuses[0].value").value("已发布"));
+    }
+
+    @Test
     void createReturnsQuestion() throws Exception {
         User teacher = user("teacher001", "TEACHER");
         when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);

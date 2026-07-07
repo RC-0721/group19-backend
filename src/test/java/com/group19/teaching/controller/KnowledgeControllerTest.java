@@ -85,9 +85,12 @@ class KnowledgeControllerTest {
         MockMultipartFile file = new MockMultipartFile("file", "homework.zip", "application/zip", "zip".getBytes());
         when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
         when(knowledgeService.uploadFile(any(), eq(student))).thenReturn(Map.of(
+                "file_id", "file-1",
                 "file_name", "homework.zip",
                 "file_type", "zip",
-                "storage_path", "target/test-uploads/file-1.zip"
+                "file_size", 3L,
+                "storage_path", "target/test-uploads/file-1.zip",
+                "created_time", "2026-07-07T09:00:00"
         ));
 
         mockMvc.perform(multipart("/api/files")
@@ -95,8 +98,36 @@ class KnowledgeControllerTest {
                         .header("token", "student-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.file_id").value("file-1"))
                 .andExpect(jsonPath("$.data.file_name").value("homework.zip"))
                 .andExpect(jsonPath("$.data.file_type").value("zip"));
+    }
+
+    @Test
+    void listFilesReturnsUploadHistory() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(knowledgeService.listFiles("GENERAL", 1, 20, student)).thenReturn(Map.of(
+                "items", List.of(Map.of(
+                        "file_id", "file-1",
+                        "owner_id", "student001",
+                        "scope", "GENERAL",
+                        "file_name", "homework.zip"
+                )),
+                "page_no", 1,
+                "page_size", 20,
+                "total", 1
+        ));
+
+        mockMvc.perform(get("/api/files")
+                        .header("token", "student-token")
+                        .param("scope", "GENERAL")
+                        .param("page_no", "1")
+                        .param("page_size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.items[0].file_id").value("file-1"))
+                .andExpect(jsonPath("$.data.total").value(1));
     }
 
     @Test

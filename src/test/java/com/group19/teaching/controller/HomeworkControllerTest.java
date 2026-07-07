@@ -101,8 +101,11 @@ class HomeworkControllerTest {
         when(homeworkService.listSubmits("hw-1", "待批改", 1, 10, teacher)).thenReturn(Map.of(
                 "records", List.of(Map.of(
                         "submit_id", "submit-1",
+                        "homework_id", "hw-1",
                         "review_id", "review-1",
-                        "submit_status", "待批改"
+                        "student_name", "学生一",
+                        "submit_status", "待批改",
+                        "ai_review", Map.of("score", 60, "comment", "待教师确认")
                 )),
                 "total", 1,
                 "page_no", 1,
@@ -116,7 +119,12 @@ class HomeworkControllerTest {
                         .param("page_size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].homework_id").value("hw-1"))
                 .andExpect(jsonPath("$.data.records[0].review_id").value("review-1"))
+                .andExpect(jsonPath("$.data.records[0].student_name").value("学生一"))
+                .andExpect(jsonPath("$.data.records[0].submit_status").value("待批改"))
+                .andExpect(jsonPath("$.data.records[0].ai_review.score").value(60))
+                .andExpect(jsonPath("$.data.records[0].ai_review.comment").value("待教师确认"))
                 .andExpect(jsonPath("$.data.total").value(1));
     }
 

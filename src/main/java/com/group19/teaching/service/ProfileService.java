@@ -141,7 +141,7 @@ public class ProfileService {
             User actor,
             boolean refreshLearningEvidence,
             String readyStatus) {
-        if (!StringUtils.hasText(studentId) || !StringUtils.hasText(jobId)) {
+        if (!StringUtils.hasText(studentId)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         if ("STUDENT".equalsIgnoreCase(actor.getRole()) && !actor.getAccount().equals(studentId)) {
@@ -150,7 +150,13 @@ public class ProfileService {
         if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
             requireTeacherStudent(studentId, actor.getAccount());
         }
-        requireJob(jobId);
+        if (!StringUtils.hasText(jobId)) {
+            jobId = targetJobId(studentId);
+        }
+        if (!StringUtils.hasText(jobId)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        Map<String, Object> job = requireJob(jobId);
         if (refreshLearningEvidence) {
             upsertLearningEvidence(studentId);
         }
@@ -201,15 +207,20 @@ public class ProfileService {
                 WHERE profile_id = ?
                 ORDER BY created_time DESC, recommend_id
                 """, profileId);
-        return Map.of(
-                "profile_id", profileId,
-                "profile_status", profileStatus,
-                "knowledge_mastery", knowledgeMastery,
-                "skill_mastery", skillMastery,
-                "evidences", evidences,
-                "recommendations", recommendations,
-                "updated_time", now
-        );
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("student_id", studentId);
+        result.put("account", studentId);
+        result.put("target_job_id", jobId);
+        result.put("job_id", jobId);
+        result.put("job_name", stringValue(job.get("job_name")));
+        result.put("profile_id", profileId);
+        result.put("profile_status", profileStatus);
+        result.put("knowledge_mastery", knowledgeMastery);
+        result.put("skill_mastery", skillMastery);
+        result.put("evidences", evidences);
+        result.put("recommendations", recommendations);
+        result.put("updated_time", now);
+        return result;
     }
 
     private void upsertLearningEvidence(String studentId) {
@@ -242,10 +253,24 @@ public class ProfileService {
                 "PROFILE", operationType, "SUCCESS");
     }
 
-    private void requireJob(String jobId) {
-        if (jdbcTemplate.queryForList("SELECT job_id FROM job_direction WHERE job_id = ? LIMIT 1", jobId).isEmpty()) {
+    private Map<String, Object> requireJob(String jobId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT job_id, job_name FROM job_direction WHERE job_id = ? LIMIT 1", jobId);
+        if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        return rows.get(0);
+    }
+
+    private String targetJobId(String studentId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT target_job_id
+                FROM student_profile
+                WHERE student_id = ? OR user_id = ? OR student_no = ?
+                ORDER BY student_id
+                LIMIT 1
+                """, studentId, studentId, studentId);
+        return rows.isEmpty() ? null : stringValue(rows.get(0).get("target_job_id"));
     }
 
     private void requireClass(String classId) {

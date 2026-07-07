@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -93,6 +94,47 @@ class QuestionServiceTest {
                 () -> questionService.audit("missing", "已发布", user("admin001", "EDU_ADMIN")));
 
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
+    }
+
+    @Test
+    void metadataForStudentUsesPublishedQuestionScope() {
+        when(jdbcTemplate.queryForList(contains("q.question_type AS value")))
+                .thenReturn(List.of(Map.of("value", "简答题")));
+        when(jdbcTemplate.queryForList(contains("q.difficulty AS value")))
+                .thenReturn(List.of(Map.of("value", "中等")));
+        when(jdbcTemplate.queryForList(contains("JOIN question q")))
+                .thenReturn(List.of(Map.of("knowledge_id", "kp-001", "knowledge_name", "Java 基础")));
+        when(jdbcTemplate.queryForList(contains("FROM job_direction")))
+                .thenReturn(List.of(Map.of("job_id", "job-java-backend", "job_name", "Java 后端开发工程师")));
+        when(jdbcTemplate.queryForList(contains("FROM tech_stack")))
+                .thenReturn(List.of(Map.of("tech_id", "tech-001", "tech_name", "Java", "job_id", "job-java-backend")));
+
+        Map<String, Object> result = questionService.metadata(user("student001", "STUDENT"));
+
+        assertEquals("简答题", ((Map<?, ?>) ((List<?>) result.get("question_types")).get(0)).get("value"));
+        assertEquals("kp-001", ((Map<?, ?>) ((List<?>) result.get("knowledge_points")).get(0)).get("knowledge_id"));
+        assertEquals("已发布", ((Map<?, ?>) ((List<?>) result.get("audit_statuses")).get(0)).get("value"));
+    }
+
+    @Test
+    void metadataForTeacherLimitsKnowledgeToOwnCourses() {
+        when(jdbcTemplate.queryForList(contains("q.question_type AS value")))
+                .thenReturn(List.of(Map.of("value", "简答题")));
+        when(jdbcTemplate.queryForList(contains("q.difficulty AS value")))
+                .thenReturn(List.of(Map.of("value", "中等")));
+        when(jdbcTemplate.queryForList(contains("JOIN course_class cc"), eq("teacher001")))
+                .thenReturn(List.of(Map.of("knowledge_id", "kp-001", "knowledge_name", "Java 基础")));
+        when(jdbcTemplate.queryForList(contains("FROM job_direction")))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForList(contains("FROM tech_stack")))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForList(contains("SELECT DISTINCT audit_status AS value")))
+                .thenReturn(List.of(Map.of("value", "待审核"), Map.of("value", "已发布")));
+
+        Map<String, Object> result = questionService.metadata(user("teacher001", "TEACHER"));
+
+        assertEquals(1, ((List<?>) result.get("knowledge_points")).size());
+        assertEquals(2, ((List<?>) result.get("audit_statuses")).size());
     }
 
     private static User user(String account, String role) {

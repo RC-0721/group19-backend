@@ -149,6 +149,32 @@ class AIInterviewServiceTest {
     }
 
     @Test
+    void sendMessageAcceptsContentSourceAndReturnsAliases() {
+        when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(Map.of(
+                "session_id", "session-1",
+                "student_id", "student001",
+                "job_id", "job-java-backend",
+                "scene", "模拟面试",
+                "prompt_version", "v1",
+                "status", "进行中",
+                "current_round", 0,
+                "round_count", 5
+        )));
+        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of(Map.of("chunk_text", "知识片段")));
+
+        Map<String, Object> result = interviewService.sendMessage(
+                "session-1",
+                Map.of("content", "回答", "source", "student_audio_stt", "client_message_id", "client-1"),
+                user("student001", "STUDENT"));
+
+        assertEquals("assistant", result.get("role"));
+        assertEquals("ai", result.get("sender_type"));
+        assertEquals("ai_stream", result.get("source"));
+        assertEquals(1, result.get("round_no"));
+        assertEquals(result.get("message_content"), result.get("content"));
+    }
+
+    @Test
     void sendMessageMarksReportAvailableAtRoundLimit() {
         when(jdbcTemplate.queryForList(anyString(), eq("session-1"))).thenReturn(List.of(Map.of(
                 "session_id", "session-1",
@@ -172,12 +198,28 @@ class AIInterviewServiceTest {
     @Test
     void listMessagesReturnsMessagesForOwner() {
         when(jdbcTemplate.queryForList(anyString(), eq("session-1")))
-                .thenReturn(List.of(session("student001")))
-                .thenReturn(List.of(Map.of("message_id", "msg-1", "sender_type", "STUDENT")));
+                .thenReturn(List.of(Map.of(
+                        "session_id", "session-1",
+                        "student_id", "student001",
+                        "student_name", "学生一",
+                        "job_id", "job-java-backend",
+                        "job_name", "Java 后端",
+                        "status", "进行中")))
+                .thenReturn(List.of(Map.of(
+                        "message_id", "msg-1",
+                        "session_id", "session-1",
+                        "sender_type", "STUDENT",
+                        "message_content", "回答",
+                        "round_no", 1)));
 
         Map<String, Object> result = interviewService.listMessages("session-1", user("student001", "STUDENT"));
 
         assertEquals(1, ((List<?>) result.get("messages")).size());
+        assertEquals("session-1", ((Map<?, ?>) result.get("session")).get("session_id"));
+        Map<?, ?> message = (Map<?, ?>) ((List<?>) result.get("messages")).get(0);
+        assertEquals("user", message.get("role"));
+        assertEquals("回答", message.get("content"));
+        assertEquals("student_text", message.get("source"));
     }
 
     @Test
@@ -398,6 +440,27 @@ class AIInterviewServiceTest {
                 null, "job-java-backend", null, 1, 10, user("student001", "STUDENT"));
 
         assertEquals(1, result.get("total"));
+    }
+
+    @Test
+    void listAllowsEduAdminSessions() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("job-java-backend")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("job-java-backend"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "session_id", "session-1",
+                        "student_name", "学生一",
+                        "job_name", "Java 后端",
+                        "last_message", "最近回复"
+                )));
+
+        Map<String, Object> result = interviewService.list(
+                null, "job-java-backend", null, 1, 10, user("admin001", "EDU_ADMIN"));
+
+        assertEquals(1, result.get("total"));
+        Map<?, ?> record = (Map<?, ?>) ((List<?>) result.get("records")).get(0);
+        assertEquals("学生一", record.get("student_name"));
+        assertEquals("最近回复", record.get("last_message"));
     }
 
     private static User user(String account, String role) {

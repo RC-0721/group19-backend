@@ -93,6 +93,32 @@ public class QuestionService {
         return Map.of("question_id", questionId, "audit_status", auditStatus);
     }
 
+    public Map<String, Object> metadata(User actor) {
+        if (actor == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED);
+        }
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("question_types", optionRows(distinctQuestionColumn("question_type", actor)));
+        result.put("difficulties", optionRows(distinctQuestionColumn("difficulty", actor)));
+        result.put("knowledge_points", knowledgeMetadata(actor));
+        result.put("jobs", jdbcTemplate.queryForList("""
+                SELECT job_id, job_name
+                FROM job_direction
+                WHERE status = '启用'
+                ORDER BY job_name, job_id
+                """));
+        result.put("tech_stacks", jdbcTemplate.queryForList("""
+                SELECT DISTINCT ts.tech_id, ts.tech_name, jss.job_id
+                FROM tech_stack ts
+                JOIN job_skill_standard jss ON jss.tech_id = ts.tech_id
+                JOIN job_direction jd ON jd.job_id = jss.job_id
+                WHERE jd.status = '启用'
+                ORDER BY jss.job_id, ts.tech_name, ts.tech_id
+                """));
+        result.put("audit_statuses", auditStatusMetadata(actor));
+        return result;
+    }
+
     public Map<String, Object> list(
             String knowledgeId,
             String sourceId,
@@ -129,6 +155,80 @@ public class QuestionService {
                 "page_no", pageNo,
                 "page_size", pageSize
         );
+    }
+
+    private List<Map<String, Object>> distinctQuestionColumn(String column, User actor) {
+        String condition = "STUDENT".equalsIgnoreCase(actor.getRole())
+                ? "WHERE q.audit_status = '已发布' AND q." + column + " IS NOT NULL AND q." + column + " <> ''"
+                : "WHERE q." + column + " IS NOT NULL AND q." + column + " <> ''";
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT q.%s AS value
+                FROM question q
+                %s
+                ORDER BY q.%s
+                """.formatted(column, condition, column));
+    }
+
+    private List<Map<String, Object>> knowledgeMetadata(User actor) {
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            return jdbcTemplate.queryForList("""
+                    SELECT DISTINCT kp.knowledge_id, kp.name AS knowledge_name, kp.course_id, kp.chapter_id
+                    FROM knowledge_point kp
+                    JOIN question_knowledge_relation qkr ON qkr.knowledge_id = kp.knowledge_id
+                    JOIN question q ON q.question_id = qkr.question_id
+                    WHERE q.audit_status = '已发布'
+                      AND kp.audit_status = '已发布'
+                    ORDER BY kp.course_id, kp.chapter_id, kp.name, kp.knowledge_id
+                    """);
+        }
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            return jdbcTemplate.queryForList("""
+                    SELECT DISTINCT kp.knowledge_id, kp.name AS knowledge_name, kp.course_id, kp.chapter_id
+                    FROM knowledge_point kp
+                    JOIN course_class cc ON cc.course_id = kp.course_id
+                    WHERE cc.teacher_id = ?
+                    ORDER BY kp.course_id, kp.chapter_id, kp.name, kp.knowledge_id
+                    """, actor.getAccount());
+        }
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return jdbcTemplate.queryForList("""
+                    SELECT kp.knowledge_id, kp.name AS knowledge_name, kp.course_id, kp.chapter_id
+                    FROM knowledge_point kp
+                    ORDER BY kp.course_id, kp.chapter_id, kp.name, kp.knowledge_id
+                    """);
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN);
+    }
+
+    private List<Map<String, Object>> auditStatusMetadata(User actor) {
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            return List.of(option("已发布"));
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT DISTINCT audit_status AS value
+                FROM question
+                WHERE audit_status IS NOT NULL AND audit_status <> ''
+                ORDER BY audit_status
+                """);
+        return optionRows(rows);
+    }
+
+    private List<Map<String, Object>> optionRows(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> options = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            String value = stringValue(row.get("value"));
+            if (StringUtils.hasText(value)) {
+                options.add(option(value));
+            }
+        }
+        return options;
+    }
+
+    private Map<String, Object> option(String value) {
+        Map<String, Object> option = new java.util.LinkedHashMap<>();
+        option.put("value", value);
+        option.put("label", value);
+        return option;
     }
 
     private String baseFrom() {

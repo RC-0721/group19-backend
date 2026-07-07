@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -114,6 +115,22 @@ class AIInterviewControllerTest {
     }
 
     @Test
+    void listSessionMessagesReturnsMessages() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
+        when(interviewService.listMessages("session-1", student)).thenReturn(Map.of(
+                "session", Map.of("session_id", "session-1"),
+                "messages", List.of(Map.of("message_id", "msg-1", "role", "user"))
+        ));
+
+        mockMvc.perform(get("/api/interviews/sessions/session-1/messages")
+                        .header("token", "student-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.session.session_id").value("session-1"))
+                .andExpect(jsonPath("$.data.messages[0].role").value("user"));
+    }
+
+    @Test
     void saveTranscriptReturnsSegmentId() throws Exception {
         User student = user("student001", "STUDENT");
         when(authService.requireRole("student-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(student);
@@ -198,13 +215,28 @@ class AIInterviewControllerTest {
     void streamMessageStartsSseResponse() throws Exception {
         User student = user("student001", "STUDENT");
         when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
-        when(interviewService.streamMessage(eq("session-1"), anyMap(), eq(student))).thenReturn(new SseEmitter());
+        when(interviewService.streamChat(eq("session-1"), anyMap(), eq(student))).thenReturn(new SseEmitter());
 
         mockMvc.perform(post("/api/interviews/session-1/messages/stream")
                         .header("token", "student-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message_content\":\"回答\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
+    }
+
+    @Test
+    void streamChatStartsSseResponse() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
+        when(interviewService.streamChat(eq("session-1"), anyMap(), eq(student))).thenReturn(new SseEmitter());
+
+        mockMvc.perform(post("/api/interviews/sessions/session-1/chat/stream")
+                        .header("token", "student-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"回答\",\"source\":\"student_audio_stt\"}"))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
     }
 
     @Test

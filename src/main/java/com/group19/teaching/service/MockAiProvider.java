@@ -24,4 +24,22 @@ public class MockAiProvider implements AiProvider {
         String content = "Mock AI 回复：" + (prompt.length() > 80 ? prompt.substring(0, 80) : prompt);
         return new AiProviderResult(model, content, prompt.length(), content.length(), System.currentTimeMillis() - start);
     }
+
+    @Override
+    public AiProviderStreamResult stream(AiRequest request, AiStreamHandler handler) {
+        long start = System.currentTimeMillis();
+        String prompt = request.prompt() == null ? "" : request.prompt().strip();
+        String content = "Mock AI 回复：" + (prompt.length() > 80 ? prompt.substring(0, 80) : prompt);
+        if (handler != null) {
+            for (int index = 0; index < content.length(); index += 12) {
+                handler.onDelta(content.substring(index, Math.min(index + 12, content.length())));
+            }
+        }
+        return new AiProviderStreamResult(
+                model,
+                content,
+                prompt.length(),
+                content.length(),
+                System.currentTimeMillis() - start);
+    }
 }

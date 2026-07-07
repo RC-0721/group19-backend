@@ -35,19 +35,12 @@ public class AiService {
     }
 
     public Map<String, Object> chat(Map<String, Object> request, User actor) {
-        if (request == null) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR);
-        }
-        String scene = stringValue(request.get("scene"));
-        String prompt = stringValue(request.get("prompt"));
-        String systemPrompt = stringValue(request.get("system_prompt"));
-        if (!StringUtils.hasText(scene) || !StringUtils.hasText(prompt)) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR);
-        }
+        ChatRequest chatRequest = validateChatRequest(request);
         String requestId = "ai-req-" + UUID.randomUUID();
         try {
-            AiProviderResult result = provider().chat(new AiRequest(scene, prompt, systemPrompt));
-            writeLog(requestId, actor, scene, result.model(), prompt, result.content(), "成功",
+            AiProviderResult result = provider().chat(new AiRequest(
+                    chatRequest.scene(), chatRequest.prompt(), chatRequest.systemPrompt()));
+            writeLog(requestId, actor, chatRequest.scene(), result.model(), chatRequest.prompt(), result.content(), "成功",
                     result.durationMs(), result.tokenInput(), result.tokenOutput(), null);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("request_id", requestId);
@@ -56,27 +49,47 @@ public class AiService {
             data.put("duration_ms", result.durationMs());
             return data;
         } catch (RuntimeException exception) {
-            writeLog(requestId, actor, scene, model, prompt, "", "失败", null, null, null, shortMessage(exception));
+            writeLog(requestId, actor, chatRequest.scene(), model, chatRequest.prompt(), "", "失败",
+                    null, null, null, shortMessage(exception));
+            throw new BusinessException(ErrorCode.AI_UNAVAILABLE);
+        }
+    }
+
+    public AiProviderStreamResult streamChat(Map<String, Object> request, User actor, AiStreamHandler handler) {
+        ChatRequest chatRequest = validateChatRequest(request);
+        String requestId = "ai-req-" + UUID.randomUUID();
+        return streamChat(chatRequest, actor, handler, requestId);
+    }
+
+    private AiProviderStreamResult streamChat(
+            ChatRequest chatRequest,
+            User actor,
+            AiStreamHandler handler,
+            String requestId) {
+        try {
+            AiProviderStreamResult result = provider().stream(new AiRequest(
+                    chatRequest.scene(), chatRequest.prompt(), chatRequest.systemPrompt()), handler);
+            writeLog(requestId, actor, chatRequest.scene(), result.model(), chatRequest.prompt(), result.content(), "成功",
+                    result.durationMs(), result.tokenInput(), result.tokenOutput(), null);
+            return result;
+        } catch (RuntimeException exception) {
+            writeLog(requestId, actor, chatRequest.scene(), model, chatRequest.prompt(), "", "失败",
+                    null, null, null, shortMessage(exception));
             throw new BusinessException(ErrorCode.AI_UNAVAILABLE);
         }
     }
 
     public SseEmitter stream(Map<String, Object> request, User actor) {
-        validateChatRequest(request);
+        ChatRequest chatRequest = validateChatRequest(request);
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
-                Map<String, Object> result = chat(request, actor);
+                String requestId = "ai-req-" + UUID.randomUUID();
                 emitter.send(SseEmitter.event().name("meta").data(Map.of(
-                        "request_id", result.get("request_id"),
-                        "model", result.get("model"),
-                        "duration_ms", result.get("duration_ms")
+                        "request_id", requestId,
+                        "model", model
                 )));
-                String content = stringValue(result.get("content"));
-                for (int start = 0; start < content.length(); start += 32) {
-                    emitter.send(SseEmitter.event().name("delta")
-                            .data(content.substring(start, Math.min(start + 32, content.length()))));
-                }
+                streamChat(chatRequest, actor, delta -> sendDelta(emitter, delta), requestId);
                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                 emitter.complete();
             } catch (BusinessException exception) {
@@ -88,14 +101,24 @@ public class AiService {
         return emitter;
     }
 
-    private void validateChatRequest(Map<String, Object> request) {
+    private ChatRequest validateChatRequest(Map<String, Object> request) {
         if (request == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         String scene = stringValue(request.get("scene"));
         String prompt = stringValue(request.get("prompt"));
+        String systemPrompt = stringValue(request.get("system_prompt"));
         if (!StringUtils.hasText(scene) || !StringUtils.hasText(prompt)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        return new ChatRequest(scene, prompt, systemPrompt);
+    }
+
+    private void sendDelta(SseEmitter emitter, String delta) {
+        try {
+            emitter.send(SseEmitter.event().name("delta").data(delta));
+        } catch (IOException exception) {
+            throw new IllegalStateException("SSE send failed", exception);
         }
     }
 
@@ -143,5 +166,8 @@ public class AiService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private record ChatRequest(String scene, String prompt, String systemPrompt) {
     }
 }

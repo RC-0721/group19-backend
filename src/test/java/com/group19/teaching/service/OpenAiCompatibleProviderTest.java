@@ -1,11 +1,16 @@
 package com.group19.teaching.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -45,6 +50,44 @@ class OpenAiCompatibleProviderTest {
         assertEquals("assistant-key", provider.apiKeyForScene("HOMEWORK_REVIEW"));
         assertEquals("admin-key", provider.apiKeyForScene("MATERIAL_REVIEW"));
         assertEquals("resources-key", provider.apiKeyForScene("KNOWLEDGE_GRAPH_BUILD"));
+    }
+
+    @Test
+    void streamParsesOpenAiCompatibleSseDeltas() throws IOException {
+        Path resources = keyFile("resources.key", "resources-key");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        List<String> requestBodies = new ArrayList<>();
+        server.createContext("/chat/completions", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes());
+            requestBodies.add(body);
+            byte[] response = """
+                    data: {"choices":[{"delta":{"content":"he"}}]}
+
+                    data: {"choices":[{"delta":{"content":"llo"}}]}
+
+                    data: [DONE]
+
+                    """.getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    resources.toString(), "", "", "", "deepseek-v4-flash", 1000);
+            List<String> deltas = new ArrayList<>();
+
+            AiProviderStreamResult result = provider.stream(new AiRequest("CHAT", "hello", ""), deltas::add);
+
+            assertTrue(requestBodies.get(0).contains("\"stream\":true"));
+            assertEquals("hello", result.content());
+            assertEquals(List.of("he", "llo"), deltas);
+        } finally {
+            server.stop(0);
+        }
     }
 
     private OpenAiCompatibleProvider provider(Path resources, Path interview, Path admin, Path assistant) {

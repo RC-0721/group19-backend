@@ -129,12 +129,35 @@ public class AuthService {
             return Map.of("account", user.getAccount(), "role", user.getRole());
         }
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT student_id, student_no, major_id, class_id, target_job_id, enrollment_year
-                FROM student_profile
-                WHERE user_id = ?
+                SELECT sp.student_id, sp.student_no, sp.major_id, sp.class_id, sp.target_job_id,
+                       sp.target_job_id AS job_id, jd.job_name, sp.enrollment_year
+                FROM student_profile sp
+                LEFT JOIN job_direction jd ON jd.job_id = sp.target_job_id
+                WHERE sp.user_id = ?
                 LIMIT 1
                 """, user.getAccount());
-        return rows.isEmpty() ? Map.of("student_id", user.getAccount()) : rows.get(0);
+        Map<String, Object> profile = new LinkedHashMap<>();
+        if (!rows.isEmpty()) {
+            profile.putAll(rows.get(0));
+        } else {
+            profile.put("student_id", user.getAccount());
+            profile.put("student_no", "");
+            profile.put("major_id", "");
+            profile.put("class_id", "");
+            profile.put("target_job_id", "");
+            profile.put("job_id", "");
+            profile.put("job_name", "");
+            profile.put("enrollment_year", "");
+        }
+        profile.put("account", user.getAccount());
+        if (!profile.containsKey("target_job_id")) {
+            profile.put("target_job_id", "");
+        }
+        profile.put("job_id", profile.get("target_job_id"));
+        if (!profile.containsKey("job_name")) {
+            profile.put("job_name", "");
+        }
+        return profile;
     }
 
     private String normalizeToken(String token) {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,22 @@ class AiServiceTest {
                 () -> service.stream(Map.of("scene", "CHAT"), user()));
 
         assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void streamChatEmitsDeltasAndWritesSuccessLog() {
+        AiService service = new AiService(jdbcTemplate, List.of(new MockAiProvider("mock-ai")), "mock", "mock-ai");
+        List<String> deltas = new ArrayList<>();
+
+        AiProviderStreamResult result = service.streamChat(
+                Map.of("scene", "AI_INTERVIEW_CHAT", "prompt", "解释 Spring"),
+                user(),
+                deltas::add);
+
+        assertEquals("mock-ai", result.model());
+        assertEquals(result.content(), String.join("", deltas));
+        verify(jdbcTemplate).update(contains("INSERT INTO ai_call_log"),
+                any(), any(), any(), any(), any(), any(), eq("成功"), any(), any(), any(), any(), any());
     }
 
     private static User user() {

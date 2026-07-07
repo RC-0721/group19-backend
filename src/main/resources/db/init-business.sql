@@ -201,6 +201,22 @@ CREATE TABLE IF NOT EXISTS course_material (
   INDEX idx_material_chapter (chapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS uploaded_file (
+  file_id VARCHAR(64) PRIMARY KEY,
+  owner_id VARCHAR(64) NOT NULL,
+  owner_role VARCHAR(30) NOT NULL,
+  scope VARCHAR(30) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(50),
+  mime_type VARCHAR(100),
+  file_size BIGINT,
+  storage_path VARCHAR(500) NOT NULL,
+  file_url VARCHAR(500),
+  created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_uploaded_file_owner (owner_id, created_time),
+  INDEX idx_uploaded_file_scope (scope, created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_material' AND COLUMN_NAME = 'ai_tags');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE course_material ADD COLUMN ai_tags TEXT', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -599,9 +615,23 @@ CREATE TABLE IF NOT EXISTS ai_message (
   sender_type VARCHAR(20) NOT NULL,
   message_content TEXT NOT NULL,
   reference_chunk TEXT,
+  source VARCHAR(50),
+  round_no INT,
+  client_message_id VARCHAR(100),
   created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_ai_message_session (session_id)
+  INDEX idx_ai_message_session (session_id),
+  INDEX idx_ai_message_session_round (session_id, round_no, created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_message' AND COLUMN_NAME = 'source');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_message ADD COLUMN source VARCHAR(50)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_message' AND COLUMN_NAME = 'round_no');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_message ADD COLUMN round_no INT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_message' AND COLUMN_NAME = 'client_message_id');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_message ADD COLUMN client_message_id VARCHAR(100)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS ai_interview_report (
   report_id VARCHAR(64) PRIMARY KEY,

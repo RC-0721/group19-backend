@@ -74,6 +74,8 @@ class AdminAiOpsServiceTest {
         when(jdbcTemplate.queryForList(anyString(), eq("待复核"), eq("待复核"), eq(20), eq(0)))
                 .thenReturn(List.of(Map.of(
                         "review_id", "audit:audit-1",
+                        "material_name", "阶段 B 资料复核演示材料.md",
+                        "risk_summary", "疑似包含未脱敏学生作业片段",
                         "review_status", "待复核",
                         "format_risk", "需人工确认"
                 )));
@@ -83,6 +85,8 @@ class AdminAiOpsServiceTest {
 
         assertEquals(1, result.get("total"));
         assertEquals("audit:audit-1", ((Map<?, ?>) ((List<?>) result.get("records")).get(0)).get("review_id"));
+        assertEquals("阶段 B 资料复核演示材料.md",
+                ((Map<?, ?>) ((List<?>) result.get("records")).get(0)).get("material_name"));
     }
 
     @Test

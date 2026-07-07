@@ -38,6 +38,7 @@ public class ProjectService {
     }
 
     public Map<String, Object> list(
+            String courseClassId,
             String courseId,
             String jobId,
             String status,
@@ -47,22 +48,43 @@ public class ProjectService {
         if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
+        if (StringUtils.hasText(courseClassId)) {
+            Map<String, Object> courseClass = requireCourseClassFilter(courseClassId, actor);
+            String classCourseId = stringValue(courseClass.get("course_id"));
+            if (StringUtils.hasText(courseId) && !courseId.trim().equals(classCourseId)) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR);
+            }
+        }
         if (StringUtils.hasText(courseId)) {
             requireCourseAccess(courseId, actor);
         }
         List<Object> params = new ArrayList<>();
-        String where = buildListWhere(courseId, jobId, status, actor, params);
-        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT pt.project_task_id) FROM project_task pt " + where,
+        String where = buildListWhere(courseClassId, courseId, jobId, status, actor, params);
+        String from = """
+                FROM project_task pt
+                LEFT JOIN course c ON c.course_id = pt.course_id
+                LEFT JOIN job_direction jd ON jd.job_id = pt.job_id
+                """ + (StringUtils.hasText(courseClassId)
+                ? "JOIN course_class cc_filter ON cc_filter.course_id = pt.course_id\n" : "");
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT pt.project_task_id) " + from + where,
                 Integer.class, params.toArray());
         List<Object> pageParams = new ArrayList<>(params);
         pageParams.add(pageSize);
         pageParams.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
-                SELECT DISTINCT pt.project_task_id, pt.course_id, pt.job_id, pt.title, pt.task_goal,
+                SELECT DISTINCT pt.project_task_id,
+                       """ + (StringUtils.hasText(courseClassId) ? "cc_filter.course_class_id" : "NULL") + " AS course_class_id," + """
+                       pt.course_id, c.course_name, pt.job_id, jd.job_name, pt.title, pt.task_goal,
                        pt.tech_requirement, pt.deliverable, pt.project_type, pt.arch_requirement,
-                       pt.arch_scale, pt.status
-                FROM project_task pt
-                """ + where + """
+                       pt.arch_scale, pt.status,
+                       (SELECT COUNT(*) FROM project_submission ps WHERE ps.project_task_id = pt.project_task_id) AS submit_count,
+                       (SELECT COUNT(*)
+                        FROM project_submission ps
+                        LEFT JOIN project_evaluation pe ON pe.submission_id = ps.submission_id
+                        WHERE ps.project_task_id = pt.project_task_id
+                          AND (ps.submit_status IN ('待评价', '系统辅助评估', '教师批量确认')
+                               OR pe.teacher_score IS NULL)) AS pending_evaluation_count
+                """ + from + where + """
                 ORDER BY pt.project_task_id
                 LIMIT ? OFFSET ?
                 """, pageParams.toArray());
@@ -310,7 +332,13 @@ public class ProjectService {
         }
     }
 
-    private String buildListWhere(String courseId, String jobId, String status, User actor, List<Object> params) {
+    private String buildListWhere(
+            String courseClassId,
+            String courseId,
+            String jobId,
+            String status,
+            User actor,
+            List<Object> params) {
         StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
         if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
             where.append("""
@@ -333,10 +361,41 @@ public class ProjectService {
         } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
+        append(where, params, "cc_filter.course_class_id", courseClassId);
         append(where, params, "pt.course_id", courseId);
         append(where, params, "pt.job_id", jobId);
         append(where, params, "pt.status", status);
         return where.toString();
+    }
+
+    private Map<String, Object> requireCourseClassFilter(String courseClassId, User actor) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT course_class_id, course_id, teacher_id, class_id
+                FROM course_class
+                WHERE course_class_id = ?
+                LIMIT 1
+                """, courseClassId);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        Map<String, Object> row = rows.get(0);
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())
+                && !actor.getAccount().equals(stringValue(row.get("teacher_id")))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            Integer count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM student_profile
+                    WHERE student_id = ? AND class_id = ?
+                    """, Integer.class, actor.getAccount(), row.get("class_id"));
+            if (count == null || count == 0) {
+                throw new BusinessException(ErrorCode.FORBIDDEN);
+            }
+        } else if (!"TEACHER".equalsIgnoreCase(actor.getRole()) && !"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        return row;
     }
 
     private void requireCourseAccess(String courseId, User actor) {

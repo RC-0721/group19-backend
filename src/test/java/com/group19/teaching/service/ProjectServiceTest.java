@@ -238,9 +238,74 @@ class ProjectServiceTest {
                 .thenReturn(List.of(Map.of("project_task_id", "project-1")));
 
         Map<String, Object> result = projectService.list(
-                null, "job-java-backend", "已发布", 1, 10, user("admin001", "EDU_ADMIN"));
+                null, null, "job-java-backend", "已发布", 1, 10, user("admin001", "EDU_ADMIN"));
 
         assertEquals(1, result.get("total"));
+    }
+
+    @Test
+    void listFiltersByTeacherCourseClass() {
+        User teacher = user("teacher001", "TEACHER");
+        when(jdbcTemplate.queryForList(anyString(), eq("cc-java-001"))).thenReturn(List.of(Map.of(
+                "course_class_id", "cc-java-001",
+                "course_id", "course-java-001",
+                "teacher_id", "teacher001",
+                "class_id", "class-1"
+        )));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("teacher001"), eq("cc-java-001")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("teacher001"), eq("cc-java-001"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "project_task_id", "project-1",
+                        "course_class_id", "cc-java-001",
+                        "course_name", "Java EE",
+                        "job_name", "后端开发",
+                        "submit_count", 2,
+                        "pending_evaluation_count", 1
+                )));
+
+        Map<String, Object> result = projectService.list(
+                "cc-java-001", null, null, null, 1, 10, teacher);
+
+        assertEquals(1, result.get("total"));
+        Map<?, ?> record = (Map<?, ?>) ((List<?>) result.get("records")).get(0);
+        assertEquals("cc-java-001", record.get("course_class_id"));
+        assertEquals("Java EE", record.get("course_name"));
+        assertEquals("后端开发", record.get("job_name"));
+        assertEquals(2, record.get("submit_count"));
+        assertEquals(1, record.get("pending_evaluation_count"));
+    }
+
+    @Test
+    void listRejectsOtherTeacherCourseClass() {
+        when(jdbcTemplate.queryForList(anyString(), eq("cc-java-001"))).thenReturn(List.of(Map.of(
+                "course_class_id", "cc-java-001",
+                "course_id", "course-java-001",
+                "teacher_id", "teacher002",
+                "class_id", "class-1"
+        )));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> projectService.list("cc-java-001", null, null, null, 1, 10,
+                        user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.errorCode());
+    }
+
+    @Test
+    void listRejectsMismatchedCourseClassAndCourse() {
+        when(jdbcTemplate.queryForList(anyString(), eq("cc-java-001"))).thenReturn(List.of(Map.of(
+                "course_class_id", "cc-java-001",
+                "course_id", "course-java-001",
+                "teacher_id", "teacher001",
+                "class_id", "class-1"
+        )));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> projectService.list("cc-java-001", "course-python-001", null, null, 1, 10,
+                        user("teacher001", "TEACHER")));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
     }
 
     private static User user(String account, String role) {

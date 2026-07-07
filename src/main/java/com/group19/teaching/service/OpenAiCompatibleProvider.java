@@ -16,6 +16,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okio.BufferedSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -73,7 +74,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
             Request httpRequest = new Request.Builder()
                     .url(baseUrl + "/chat/completions")
                     .addHeader("Authorization", "Bearer " + key)
-                    .post(RequestBody.create(objectMapper.writeValueAsString(payload(request)), JSON))
+                    .post(RequestBody.create(objectMapper.writeValueAsString(payload(request, false)), JSON))
                     .build();
             try (Response response = client.newCall(httpRequest).execute()) {
                 String body = response.body() == null ? "" : response.body().string();
@@ -98,7 +99,69 @@ public class OpenAiCompatibleProvider implements AiProvider {
         }
     }
 
-    private Map<String, Object> payload(AiRequest request) {
+    @Override
+    public AiProviderStreamResult stream(AiRequest request, AiStreamHandler handler) {
+        String key = apiKeyForScene(request.scene());
+        if (!StringUtils.hasText(key)) {
+            throw new IllegalStateException("AI API key is missing");
+        }
+        long start = System.currentTimeMillis();
+        try {
+            Request httpRequest = new Request.Builder()
+                    .url(baseUrl + "/chat/completions")
+                    .addHeader("Authorization", "Bearer " + key)
+                    .post(RequestBody.create(objectMapper.writeValueAsString(payload(request, true)), JSON))
+                    .build();
+            try (Response response = client.newCall(httpRequest).execute()) {
+                if (!response.isSuccessful()) {
+                    throw new IllegalStateException("AI HTTP " + response.code());
+                }
+                if (response.body() == null) {
+                    throw new IllegalStateException("AI response body is empty");
+                }
+                StringBuilder content = new StringBuilder();
+                Integer tokenInput = null;
+                Integer tokenOutput = null;
+                BufferedSource source = response.body().source();
+                String line;
+                while ((line = source.readUtf8Line()) != null) {
+                    if (!line.startsWith("data:")) {
+                        continue;
+                    }
+                    String data = line.substring("data:".length()).trim();
+                    if ("[DONE]".equals(data)) {
+                        break;
+                    }
+                    JsonNode root = objectMapper.readTree(data);
+                    String delta = root.path("choices").path(0).path("delta").path("content").asText();
+                    if (StringUtils.hasText(delta)) {
+                        content.append(delta);
+                        if (handler != null) {
+                            handler.onDelta(delta);
+                        }
+                    }
+                    JsonNode usage = root.path("usage");
+                    if (!usage.isMissingNode() && !usage.isNull()) {
+                        tokenInput = usage.path("prompt_tokens").isMissingNode() ? tokenInput : usage.path("prompt_tokens").asInt();
+                        tokenOutput = usage.path("completion_tokens").isMissingNode() ? tokenOutput : usage.path("completion_tokens").asInt();
+                    }
+                }
+                if (!StringUtils.hasText(content)) {
+                    throw new IllegalStateException("AI response content is empty");
+                }
+                return new AiProviderStreamResult(
+                        model,
+                        content.toString(),
+                        tokenInput,
+                        tokenOutput,
+                        System.currentTimeMillis() - start);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("AI request failed", exception);
+        }
+    }
+
+    private Map<String, Object> payload(AiRequest request, boolean stream) {
         List<Map<String, String>> messages = new ArrayList<>();
         if (StringUtils.hasText(request.systemPrompt())) {
             messages.add(Map.of("role", "system", "content", request.systemPrompt()));
@@ -107,7 +170,7 @@ public class OpenAiCompatibleProvider implements AiProvider {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", model);
         payload.put("messages", messages);
-        payload.put("stream", false);
+        payload.put("stream", stream);
         return payload;
     }
 

@@ -40,7 +40,14 @@ class StudentDashboardControllerTest {
                 "practice_summary", Map.of("accuracy", 100),
                 "project_summary", Map.of("submitted_count", 1),
                 "interview_summary", Map.of("latest_score", 82),
-                "profile_summary", Map.of("target_job", "Java 后端开发工程师")
+                "profile_summary", Map.of(
+                        "student_id", "student001",
+                        "account", "student001",
+                        "target_job_id", "job-java-backend",
+                        "job_id", "job-java-backend",
+                        "job_name", "Java 后端开发工程师",
+                        "target_job", "Java 后端开发工程师"
+                )
         ));
 
         mockMvc.perform(get("/api/student/dashboard").header("token", "demo-token"))
@@ -49,6 +56,8 @@ class StudentDashboardControllerTest {
                 .andExpect(jsonPath("$.data.courses[0].course_id").value("course-java-001"))
                 .andExpect(jsonPath("$.data.todo_tasks[0].task_id").value("pre-java-001"))
                 .andExpect(jsonPath("$.data.practice_summary.accuracy").value(100))
+                .andExpect(jsonPath("$.data.profile_summary.student_id").value("student001"))
+                .andExpect(jsonPath("$.data.profile_summary.job_id").value("job-java-backend"))
                 .andExpect(jsonPath("$.data.profile_summary.target_job").value("Java 后端开发工程师"));
     }
 

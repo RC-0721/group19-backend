@@ -191,7 +191,11 @@ class HomeworkServiceTest {
         when(jdbcTemplate.queryForList(anyString(), eq("hw-1"), eq("待批改"), eq(10), eq(0)))
                 .thenReturn(List.of(Map.of(
                         "submit_id", "submit-1",
+                        "homework_id", "hw-1",
                         "review_id", "review-1",
+                        "student_name", "学生一",
+                        "ai_score", 60.0,
+                        "ai_comment", "待教师确认",
                         "submit_status", "待批改"
                 )));
 
@@ -199,7 +203,13 @@ class HomeworkServiceTest {
                 "hw-1", "待批改", 1, 10, user("teacher001", "TEACHER"));
 
         assertEquals(1, result.get("total"));
-        assertEquals(1, ((List<?>) result.get("records")).size());
+        Map<?, ?> record = (Map<?, ?>) ((List<?>) result.get("records")).get(0);
+        assertEquals("hw-1", record.get("homework_id"));
+        assertEquals("review-1", record.get("review_id"));
+        assertEquals("学生一", record.get("student_name"));
+        assertEquals("待批改", record.get("submit_status"));
+        assertEquals(60.0, ((Map<?, ?>) record.get("ai_review")).get("score"));
+        assertEquals("待教师确认", ((Map<?, ?>) record.get("ai_review")).get("comment"));
     }
 
     @Test

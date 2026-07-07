@@ -28,7 +28,7 @@ public class StudentDashboardService {
         List<Map<String, Object>> profileRows = studentProfile(studentId);
         if (profileRows.isEmpty()) {
             return dashboard(List.of(), List.of(), defaultPracticeSummary(), defaultProjectSummary(),
-                    defaultInterviewSummary(), defaultProfileSummary());
+                    defaultInterviewSummary(), defaultProfileSummary(studentId));
         }
 
         Map<String, Object> profile = profileRows.get(0);
@@ -340,11 +340,29 @@ public class StudentDashboardService {
                 recommendation = stringValue(recommendationRows.get(0).get("recommend_content"));
             }
         }
-        return Map.of("profile_status", profileStatus, "target_job", targetJob, "recommendation", recommendation);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("student_id", studentId);
+        result.put("account", studentId);
+        result.put("target_job_id", targetJobId);
+        result.put("job_id", targetJobId);
+        result.put("job_name", targetJob);
+        result.put("profile_status", profileStatus);
+        result.put("target_job", targetJob);
+        result.put("recommendation", recommendation);
+        return result;
     }
 
-    private Map<String, Object> defaultProfileSummary() {
-        return Map.of("profile_status", "数据不足", "target_job", "", "recommendation", "暂无学习建议");
+    private Map<String, Object> defaultProfileSummary(String studentId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("student_id", studentId);
+        result.put("account", studentId);
+        result.put("target_job_id", "");
+        result.put("job_id", "");
+        result.put("job_name", "");
+        result.put("profile_status", "数据不足");
+        result.put("target_job", "");
+        result.put("recommendation", "暂无学习建议");
+        return result;
     }
 
     private void validatePage(Integer pageNo, Integer pageSize) {

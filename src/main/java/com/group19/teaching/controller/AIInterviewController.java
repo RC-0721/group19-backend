@@ -36,7 +36,7 @@ public class AIInterviewController {
             @RequestParam(value = "status", required = false) String status,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
-        User actor = authService.requireRole(token, "STUDENT", "TEACHER");
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
         return ApiResponse.success(interviewService.list(studentId, jobId, status, pageNo, pageSize, actor));
     }
 
@@ -67,6 +67,14 @@ public class AIInterviewController {
 
     @GetMapping("/api/interviews/{sessionId}/messages")
     public ApiResponse<Map<String, Object>> listMessages(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId) {
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(interviewService.listMessages(sessionId, actor));
+    }
+
+    @GetMapping("/api/interviews/sessions/{sessionId}/messages")
+    public ApiResponse<Map<String, Object>> listSessionMessages(
             @RequestHeader(value = "token", required = false) String token,
             @PathVariable String sessionId) {
         User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
@@ -125,7 +133,16 @@ public class AIInterviewController {
             @PathVariable String sessionId,
             @RequestBody Map<String, Object> request) {
         User actor = authService.requireRole(token, "STUDENT");
-        return interviewService.streamMessage(sessionId, request, actor);
+        return interviewService.streamChat(sessionId, request, actor);
+    }
+
+    @PostMapping(value = "/api/interviews/sessions/{sessionId}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamChat(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String sessionId,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "STUDENT");
+        return interviewService.streamChat(sessionId, request, actor);
     }
 
     @PostMapping("/api/interviews/sessions/{sessionId}/finish")

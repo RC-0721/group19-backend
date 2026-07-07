@@ -32,6 +32,7 @@ public class AIInterviewService {
 
     private static final String MODEL = "mock-ai";
     private static final Set<String> TRANSCRIPT_SOURCES = Set.of("student_audio", "student_text", "ai_text", "manual");
+    private static final Set<String> STUDENT_MESSAGE_SOURCES = Set.of("student_text", "student_audio_stt", "manual");
     private static final Set<String> MEDIA_TYPES = Set.of("video", "screenshot", "audio");
     private static final Set<String> MEDIA_MIME_TYPES = Set.of("video/webm", "image/png", "image/jpeg");
     private static final Set<String> VIDEO_MIME_TYPES = Set.of("video/webm", "video/mp4");
@@ -90,7 +91,7 @@ public class AIInterviewService {
             studentId = actor.getAccount();
         } else if ("TEACHER".equalsIgnoreCase(actor.getRole()) && StringUtils.hasText(studentId)) {
             requireTeacherStudent(studentId.trim(), actor.getAccount());
-        } else if (!"TEACHER".equalsIgnoreCase(actor.getRole())) {
+        } else if (!"TEACHER".equalsIgnoreCase(actor.getRole()) && !"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
         List<Object> params = new ArrayList<>();
@@ -103,9 +104,20 @@ public class AIInterviewService {
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
                 SELECT s.session_id, s.student_id, s.job_id, s.scene, s.model, s.prompt_version,
                        s.status, s.current_round, s.round_count, s.started_at, s.ended_at,
-                       s.created_time, s.updated_time, r.report_id, r.score
+                       s.created_time, s.updated_time, r.report_id, r.score,
+                       COALESCE(u.name, s.student_id) AS student_name,
+                       jd.job_name,
+                       (
+                         SELECT m.message_content
+                         FROM ai_message m
+                         WHERE m.session_id = s.session_id
+                         ORDER BY m.created_time DESC, m.message_id DESC
+                         LIMIT 1
+                       ) AS last_message
                 FROM ai_session s
                 LEFT JOIN ai_interview_report r ON s.session_id = r.session_id
+                LEFT JOIN sys_user u ON u.account = s.student_id
+                LEFT JOIN job_direction jd ON jd.job_id = s.job_id
                 """ + where + """
                 ORDER BY s.created_time DESC, s.session_id
                 LIMIT ? OFFSET ?
@@ -177,15 +189,19 @@ public class AIInterviewService {
     }
 
     public Map<String, Object> listMessages(String sessionId, User actor) {
-        Map<String, Object> session = requireSession(sessionId);
+        Map<String, Object> session = requireSessionMessageDetail(sessionId);
         requireSessionReadable(session, actor);
         List<Map<String, Object>> messages = jdbcTemplate.queryForList("""
-                SELECT message_id, session_id, sender_type, message_content, reference_chunk, created_time
+                SELECT message_id, session_id, sender_type, message_content, reference_chunk,
+                       source, round_no, client_message_id, created_time
                 FROM ai_message
                 WHERE session_id = ?
-                ORDER BY created_time ASC, message_id ASC
+                ORDER BY COALESCE(round_no, 999999), created_time ASC, message_id ASC
                 """, sessionId);
-        return Map.of("messages", messages);
+        List<Map<String, Object>> enriched = messages.stream()
+                .map(this::withMessageAliases)
+                .toList();
+        return Map.of("session", session, "messages", enriched);
     }
 
     @Transactional
@@ -333,68 +349,131 @@ public class AIInterviewService {
     }
 
     public SseEmitter streamMessage(String sessionId, Map<String, Object> request, User actor) {
-        validateMessageRequest(sessionId, request);
+        return streamChat(sessionId, request, actor);
+    }
+
+    public SseEmitter streamChat(String sessionId, Map<String, Object> request, User actor) {
+        MessageRequest messageRequest = parseMessageRequest(sessionId, request);
+        Map<String, Object> session = requireSession(sessionId);
+        requireOpenStudentSession(session, actor);
+        int roundNo = intValue(session.get("current_round"), 0) + 1;
+        saveStudentMessage(sessionId, messageRequest, roundNo);
+        String aiMessageId = "msg-" + UUID.randomUUID();
+        String referenceChunk = firstReferenceChunk();
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
-                emitter.send(SseEmitter.event().name("thinking").data(Map.of("status", "thinking")));
-                Map<String, Object> result = runInTransaction(() -> completeMessage(sessionId, request, actor));
-                emitter.send(SseEmitter.event().name("meta").data(Map.of(
-                        "message_id", result.get("message_id"),
-                        "reference_chunk", result.get("reference_chunk"),
-                        "status", result.get("status")
+                emitter.send(SseEmitter.event().name("message_start").data(Map.of(
+                        "session_id", sessionId,
+                        "message_id", aiMessageId,
+                        "role", "assistant",
+                        "round", roundNo
                 )));
-                sendChunks(emitter, stringValue(result.get("message_content")));
-                emitter.send(SseEmitter.event().name("done").data(result));
+                String aiContent = streamAiReply(emitter, session, messageRequest.content(), actor);
+                Map<String, Object> result = runInTransaction(() -> saveAiMessageAndAdvanceRound(
+                        session, aiMessageId, aiContent, referenceChunk, roundNo));
+                emitter.send(SseEmitter.event().name("message_end").data(result));
                 emitter.complete();
             } catch (BusinessException exception) {
                 sendError(emitter, exception.errorCode().code(), exception.errorCode().message());
             } catch (RuntimeException | IOException exception) {
-                sendError(emitter, ErrorCode.INTERNAL_ERROR.code(), ErrorCode.INTERNAL_ERROR.message());
+                sendError(emitter, ErrorCode.AI_UNAVAILABLE.code(), ErrorCode.AI_UNAVAILABLE.message());
             }
         });
         return emitter;
     }
 
     private Map<String, Object> completeMessage(String sessionId, Map<String, Object> request, User actor) {
-        validateMessageRequest(sessionId, request);
-        String content = stringValue(request.get("message_content"));
+        MessageRequest messageRequest = parseMessageRequest(sessionId, request);
         Map<String, Object> session = requireSession(sessionId);
-        if (!actor.getAccount().equals(stringValue(session.get("student_id")))) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-        LocalDateTime now = LocalDateTime.now();
-        jdbcTemplate.update("""
-                INSERT INTO ai_message (message_id, session_id, sender_type, message_content, reference_chunk, created_time)
-                VALUES (?, ?, 'STUDENT', ?, NULL, ?)
-                """, "msg-" + UUID.randomUUID(), sessionId, content, Timestamp.valueOf(now));
+        requireOpenStudentSession(session, actor);
+        int roundNo = intValue(session.get("current_round"), 0) + 1;
+        saveStudentMessage(sessionId, messageRequest, roundNo);
         String referenceChunk = firstReferenceChunk();
-        ChatResult reply = chat(stringValue(session.get("scene")), content, actor,
+        ChatResult reply = chat(stringValue(session.get("scene")), messageRequest.content(), actor,
                 "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。");
-        String aiContent = reply.content();
         String aiMessageId = "msg-" + UUID.randomUUID();
+        return saveAiMessageAndAdvanceRound(session, aiMessageId, reply.content(), referenceChunk, roundNo);
+    }
+
+    private MessageRequest parseMessageRequest(String sessionId, Map<String, Object> request) {
+        if (request == null || !StringUtils.hasText(sessionId)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String content = stringValue(request.get("content"));
+        if (!StringUtils.hasText(content)) {
+            content = stringValue(request.get("message_content"));
+        }
+        String source = stringValue(request.get("source"));
+        if (!StringUtils.hasText(source)) {
+            source = "student_text";
+        }
+        String clientMessageId = stringValue(request.get("client_message_id"));
+        if (!StringUtils.hasText(content) || !STUDENT_MESSAGE_SOURCES.contains(source)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        return new MessageRequest(content, source, clientMessageId);
+    }
+
+    private String saveStudentMessage(String sessionId, MessageRequest request, int roundNo) {
+        String messageId = "msg-" + UUID.randomUUID();
         jdbcTemplate.update("""
-                INSERT INTO ai_message (message_id, session_id, sender_type, message_content, reference_chunk, created_time)
-                VALUES (?, ?, 'AI', ?, ?, ?)
-                """, aiMessageId, sessionId, aiContent, referenceChunk, Timestamp.valueOf(now));
+                INSERT INTO ai_message
+                    (message_id, session_id, sender_type, message_content, reference_chunk,
+                     source, round_no, client_message_id, created_time)
+                VALUES (?, ?, 'student', ?, NULL, ?, ?, ?, ?)
+                """, messageId, sessionId, request.content(), request.source(), roundNo,
+                emptyToNull(request.clientMessageId()), Timestamp.valueOf(LocalDateTime.now()));
+        return messageId;
+    }
+
+    private String streamAiReply(SseEmitter emitter, Map<String, Object> session, String content, User actor) {
+        if (aiService == null) {
+            String fallback = "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。";
+            sendDelta(emitter, fallback);
+            jdbcTemplate.update("""
+                    INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
+                    VALUES (?, ?, ?, ?, ?, ?, '成功')
+                    """, "ai-log-" + UUID.randomUUID(), "AI_INTERVIEW_CHAT", MODEL,
+                    stringValue(session.get("prompt_version")), limitForPrompt(content), fallback);
+            return fallback;
+        }
+        Map<String, Object> aiRequest = buildInterviewAiRequest(session, content);
+        AiProviderStreamResult result = aiService.streamChat(aiRequest, actor, delta -> sendDelta(emitter, delta));
+        return result.content();
+    }
+
+    private Map<String, Object> saveAiMessageAndAdvanceRound(
+            Map<String, Object> session,
+            String aiMessageId,
+            String aiContent,
+            String referenceChunk,
+            int roundNo) {
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+        String sessionId = stringValue(session.get("session_id"));
+        jdbcTemplate.update("""
+                INSERT INTO ai_message
+                    (message_id, session_id, sender_type, message_content, reference_chunk,
+                     source, round_no, client_message_id, created_time)
+                VALUES (?, ?, 'ai', ?, ?, 'ai_stream', ?, NULL, ?)
+                """, aiMessageId, sessionId, aiContent, referenceChunk, roundNo, now);
         jdbcTemplate.update("""
                 UPDATE ai_session
                 SET current_round = current_round + 1, updated_time = ?
                 WHERE session_id = ?
-                """, Timestamp.valueOf(now), sessionId);
-        if (aiService == null) {
-            jdbcTemplate.update("""
-                    INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
-                    VALUES (?, ?, ?, ?, ?, ?, '成功')
-                    """, "ai-log-" + UUID.randomUUID(), stringValue(session.get("scene")), MODEL,
-                    stringValue(session.get("prompt_version")), content, aiContent);
-        }
+                """, now, sessionId);
         int currentRound = Math.max(0, intValue(session.get("current_round"), 0)) + 1;
         int roundCount = Math.max(1, intValue(session.get("round_count"), 5));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("message_id", aiMessageId);
+        result.put("content", aiContent);
         result.put("message_content", aiContent);
         result.put("reference_chunk", referenceChunk);
+        result.put("role", "assistant");
+        result.put("sender_type", "ai");
+        result.put("source", "ai_stream");
+        result.put("round", roundNo);
+        result.put("round_no", roundNo);
         result.put("status", StringUtils.hasText(stringValue(session.get("status")))
                 ? stringValue(session.get("status")) : "进行中");
         result.put("current_round", currentRound);
@@ -403,10 +482,63 @@ public class AIInterviewService {
         return result;
     }
 
-    private void validateMessageRequest(String sessionId, Map<String, Object> request) {
-        if (request == null || !StringUtils.hasText(sessionId)
-                || !StringUtils.hasText(stringValue(request.get("message_content")))) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR);
+    private Map<String, Object> buildInterviewAiRequest(Map<String, Object> session, String content) {
+        int roundNo = intValue(session.get("current_round"), 0) + 1;
+        int roundCount = intValue(session.get("round_count"), 5);
+        String jobName = jobName(stringValue(session.get("job_id")));
+        String systemPrompt = "你是智慧课程学习与教学数据分析系统的 AI 面试官。"
+                + "请围绕岗位和学生回答进行简洁追问，一次只问一个问题，不输出与面试无关的内容。";
+        String prompt = "岗位：" + jobName + "\n"
+                + "场景：" + stringValue(session.get("scene")) + "\n"
+                + "Prompt版本：" + stringValue(session.get("prompt_version")) + "\n"
+                + "轮次：" + roundNo + "/" + roundCount + "\n"
+                + "最近对话：\n" + recentMessageText(stringValue(session.get("session_id"))) + "\n"
+                + "学生本轮回答：\n" + content + "\n"
+                + "请给出自然的面试官回应，并继续提出一个后续问题。";
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("scene", "AI_INTERVIEW_CHAT");
+        request.put("prompt", prompt);
+        request.put("system_prompt", systemPrompt);
+        return request;
+    }
+
+    private String recentMessageText(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT sender_type, message_content
+                FROM ai_message
+                WHERE session_id = ?
+                ORDER BY created_time DESC, message_id DESC
+                LIMIT 10
+                """, sessionId);
+        if (rows.isEmpty()) {
+            return "无";
+        }
+        StringBuilder text = new StringBuilder();
+        for (int index = rows.size() - 1; index >= 0; index--) {
+            Map<String, Object> row = rows.get(index);
+            String role = "ai".equalsIgnoreCase(stringValue(row.get("sender_type"))) ? "AI" : "学生";
+            text.append(role).append("：")
+                    .append(limitForPrompt(stringValue(row.get("message_content"))))
+                    .append('\n');
+        }
+        return text.toString().trim();
+    }
+
+    private String jobName(String jobId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT job_name
+                FROM job_direction
+                WHERE job_id = ?
+                LIMIT 1
+                """, jobId);
+        return rows.isEmpty() ? jobId : stringValue(rows.get(0).get("job_name"));
+    }
+
+    private void sendDelta(SseEmitter emitter, String content) {
+        try {
+            emitter.send(SseEmitter.event().name("delta").data(Map.of("content", content)));
+        } catch (IOException exception) {
+            throw new IllegalStateException("SSE send failed", exception);
         }
     }
 
@@ -415,13 +547,6 @@ public class AIInterviewService {
             return supplier.get();
         }
         return transactionTemplate.execute(status -> supplier.get());
-    }
-
-    private void sendChunks(SseEmitter emitter, String content) throws IOException {
-        for (int start = 0; start < content.length(); start += 32) {
-            emitter.send(SseEmitter.event().name("delta")
-                    .data(content.substring(start, Math.min(start + 32, content.length()))));
-        }
     }
 
     private void sendError(SseEmitter emitter, String code, String message) {
@@ -603,6 +728,24 @@ public class AIInterviewService {
         return rows.get(0);
     }
 
+    private Map<String, Object> requireSessionMessageDetail(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT s.session_id, s.student_id, COALESCE(u.name, s.student_id) AS student_name,
+                       s.job_id, jd.job_name, s.scene, s.model, s.prompt_version, s.status,
+                       s.current_round, s.round_count, s.started_at, s.ended_at,
+                       s.created_time, s.updated_time
+                FROM ai_session s
+                LEFT JOIN sys_user u ON u.account = s.student_id
+                LEFT JOIN job_direction jd ON jd.job_id = s.job_id
+                WHERE s.session_id = ?
+                LIMIT 1
+                """, sessionId);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return rows.get(0);
+    }
+
     private Map<String, Object> withCanGenerateReport(Map<String, Object> row) {
         Map<String, Object> result = new LinkedHashMap<>(row);
         result.putIfAbsent("current_round", 0);
@@ -633,6 +776,13 @@ public class AIInterviewService {
             return;
         }
         throw new BusinessException(ErrorCode.FORBIDDEN);
+    }
+
+    private void requireOpenStudentSession(Map<String, Object> session, User actor) {
+        requireStudentOwner(session, actor);
+        if ("已完成".equals(stringValue(session.get("status")))) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
     }
 
     private void requireStudentOwner(Map<String, Object> session, User actor) {
@@ -705,6 +855,20 @@ public class AIInterviewService {
         return where.toString();
     }
 
+    private Map<String, Object> withMessageAliases(Map<String, Object> row) {
+        Map<String, Object> result = new LinkedHashMap<>(row);
+        String senderType = stringValue(row.get("sender_type"));
+        boolean ai = "AI".equalsIgnoreCase(senderType) || "ai".equalsIgnoreCase(senderType);
+        result.put("sender_type", ai ? "ai" : "student");
+        result.put("role", ai ? "assistant" : "user");
+        result.put("content", stringValue(row.get("message_content")));
+        if (!StringUtils.hasText(stringValue(result.get("source")))) {
+            result.put("source", ai ? "ai_stream" : "student_text");
+        }
+        result.putIfAbsent("round_no", row.get("round_no"));
+        return result;
+    }
+
     private void append(StringBuilder where, List<Object> params, String column, String value) {
         if (StringUtils.hasText(value)) {
             where.append("AND ").append(column).append(" = ?\n");
@@ -763,6 +927,15 @@ public class AIInterviewService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
+    private String emptyToNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
+    }
+
+    private String limitForPrompt(String value) {
+        String text = value == null ? "" : value.trim();
+        return text.length() > 500 ? text.substring(0, 500) : text;
+    }
+
     private Double doubleValue(Object value) {
         if (value instanceof Number number) {
             return number.doubleValue();
@@ -813,6 +986,9 @@ public class AIInterviewService {
     }
 
     private record ChatResult(String model, String content) {
+    }
+
+    private record MessageRequest(String content, String source, String clientMessageId) {
     }
 
     private interface MessageSupplier {

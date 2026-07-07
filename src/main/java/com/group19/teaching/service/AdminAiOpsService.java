@@ -128,43 +128,53 @@ public class AdminAiOpsService {
         int limit = pageSize;
         int offset = (pageNo - 1) * pageSize;
         List<Map<String, Object>> records = jdbcTemplate.queryForList("""
-                SELECT CONCAT('audit:', audit_id) AS review_id,
+                SELECT CONCAT('audit:', maa.audit_id) AS review_id,
                        'MATERIAL_AUDIT' AS source_type,
-                       audit_id AS source_id,
-                       material_id,
-                       category,
-                       difficulty,
-                       applicable_course,
-                       inappropriate_content,
-                       format_risk,
-                       copyright_risk,
-                       audit_result_json AS detail_json,
-                       COALESCE(review_status, '待复核') AS review_status,
-                       review_result,
-                       created_time
-                FROM material_ai_audit
-                WHERE COALESCE(review_status, '待复核') = ?
-                  AND (COALESCE(inappropriate_content, '') <> '未发现'
-                       OR COALESCE(format_risk, '') <> '低'
-                       OR COALESCE(copyright_risk, '') <> '低')
+                       maa.audit_id AS source_id,
+                       maa.material_id,
+                       cm.file_name AS material_name,
+                       CONCAT_WS('；',
+                         NULLIF(maa.inappropriate_content, ''),
+                         CONCAT('格式风险：', COALESCE(maa.format_risk, '')),
+                         CONCAT('版权风险：', COALESCE(maa.copyright_risk, ''))
+                       ) AS risk_summary,
+                       maa.category,
+                       maa.difficulty,
+                       maa.applicable_course,
+                       maa.inappropriate_content,
+                       maa.format_risk,
+                       maa.copyright_risk,
+                       maa.audit_result_json AS detail_json,
+                       COALESCE(maa.review_status, '待复核') AS review_status,
+                       maa.review_result,
+                       maa.created_time
+                FROM material_ai_audit maa
+                LEFT JOIN course_material cm ON cm.material_id = maa.material_id
+                WHERE COALESCE(maa.review_status, '待复核') = ?
+                  AND (COALESCE(maa.inappropriate_content, '') <> '未发现'
+                       OR COALESCE(maa.format_risk, '') <> '低'
+                       OR COALESCE(maa.copyright_risk, '') <> '低')
                 UNION ALL
-                SELECT CONCAT('score:', score_id) AS review_id,
+                SELECT CONCAT('score:', cs.score_id) AS review_id,
                        'CONTENT_SCORE' AS source_type,
-                       score_id AS source_id,
-                       source_id AS material_id,
-                       source_type AS category,
+                       cs.score_id AS source_id,
+                       cs.source_id AS material_id,
+                       cm.file_name AS material_name,
+                       CONCAT(COALESCE(cs.abnormal_flag, ''), '：', COALESCE(cs.ai_explanation, '')) AS risk_summary,
+                       cs.source_type AS category,
                        NULL AS difficulty,
                        NULL AS applicable_course,
-                       abnormal_flag AS inappropriate_content,
+                       cs.abnormal_flag AS inappropriate_content,
                        NULL AS format_risk,
                        NULL AS copyright_risk,
-                       ai_explanation AS detail_json,
-                       COALESCE(review_status, '待复核') AS review_status,
-                       review_result,
-                       created_time
-                FROM content_score
-                WHERE COALESCE(review_status, '待复核') = ?
-                  AND abnormal_flag <> '正常'
+                       cs.ai_explanation AS detail_json,
+                       COALESCE(cs.review_status, '待复核') AS review_status,
+                       cs.review_result,
+                       cs.created_time
+                FROM content_score cs
+                LEFT JOIN course_material cm ON cs.source_type = 'MATERIAL' AND cm.material_id = cs.source_id
+                WHERE COALESCE(cs.review_status, '待复核') = ?
+                  AND cs.abnormal_flag <> '正常'
                 ORDER BY created_time DESC, review_id
                 LIMIT ? OFFSET ?
                 """, targetStatus, targetStatus, limit, offset);

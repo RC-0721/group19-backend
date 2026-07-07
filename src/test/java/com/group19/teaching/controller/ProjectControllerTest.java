@@ -140,6 +140,41 @@ class ProjectControllerTest {
     }
 
     @Test
+    void listAcceptsCourseClassFilter() throws Exception {
+        User teacher = user("teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(projectService.list("cc-java-001", null, "job-java-backend", "已发布", 1, 10, teacher))
+                .thenReturn(Map.of(
+                        "records", List.of(Map.of(
+                                "project_task_id", "project-1",
+                                "course_class_id", "cc-java-001",
+                                "course_name", "Java EE",
+                                "job_name", "后端开发",
+                                "submit_count", 2,
+                                "pending_evaluation_count", 1
+                        )),
+                        "total", 1,
+                        "page_no", 1,
+                        "page_size", 10
+                ));
+
+        mockMvc.perform(get("/api/projects")
+                        .header("token", "teacher-token")
+                        .param("course_class_id", "cc-java-001")
+                        .param("job_id", "job-java-backend")
+                        .param("status", "已发布")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].course_class_id").value("cc-java-001"))
+                .andExpect(jsonPath("$.data.records[0].course_name").value("Java EE"))
+                .andExpect(jsonPath("$.data.records[0].job_name").value("后端开发"))
+                .andExpect(jsonPath("$.data.records[0].submit_count").value(2))
+                .andExpect(jsonPath("$.data.records[0].pending_evaluation_count").value(1));
+    }
+
+    @Test
     void confirmEvaluationReturnsScore() throws Exception {
         User teacher = user("teacher001", "TEACHER");
         when(authService.requireRole("teacher-token", "TEACHER")).thenReturn(teacher);
