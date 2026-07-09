@@ -103,6 +103,58 @@ public class UserAdminService {
     }
 
     @Transactional
+    public Map<String, Object> registerStudent(Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String account = stringValue(request.get("account"));
+        String password = stringValue(request.get("password"));
+        String name = stringValue(request.get("name"));
+        String studentNo = stringValue(request.get("student_no"));
+        String classCode = normalizeClassCode(request.get("class_code"));
+        if (!validUserText(account, 64) || !StringUtils.hasText(password) || !validUserText(name, 64)
+                || !validUserText(studentNo, 64) || !validUserText(classCode, 64)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (userRepository.findByAccount(account).isPresent()) {
+            throw new BusinessException(ErrorCode.STATE_NOT_ALLOWED);
+        }
+
+        Map<String, Object> classInfo = findEnabledClassByCode(classCode);
+        User user = new User();
+        user.setAccount(account);
+        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setName(name);
+        user.setRole("STUDENT");
+        user.setStatus("ENABLED");
+        user.setPermissionScope("ALL");
+        userRepository.save(user);
+
+        jdbcTemplate.update("""
+                INSERT INTO student_profile
+                  (student_id, user_id, student_no, major_id, class_id, target_job_id, enrollment_year)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  user_id = VALUES(user_id),
+                  student_no = VALUES(student_no),
+                  major_id = VALUES(major_id),
+                  class_id = VALUES(class_id)
+                """, account, account, studentNo, stringValue(classInfo.get("major_id")),
+                stringValue(classInfo.get("class_id")), null, null);
+
+        return Map.of(
+                "user_id", String.valueOf(user.getId()),
+                "account", account,
+                "name", name,
+                "role", "STUDENT",
+                "status", "ENABLED",
+                "student_no", studentNo,
+                "class_id", stringValue(classInfo.get("class_id")),
+                "class_code", classCode
+        );
+    }
+
+    @Transactional
     public Map<String, Object> updateUser(Long userId, Map<String, Object> request, User actor) {
         if (request == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
@@ -205,6 +257,19 @@ public class UserAdminService {
         return StringUtils.hasText(value) ? value : defaultValue;
     }
 
+    private Map<String, Object> findEnabledClassByCode(String classCode) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT class_id, major_id, class_code
+                FROM `class`
+                WHERE class_code = ? AND status = '启用'
+                LIMIT 1
+                """, classCode);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return rows.get(0);
+    }
+
     private Map<String, Object> userResponse(User user) {
         return Map.of(
                 "user_id", String.valueOf(user.getId()),
@@ -290,6 +355,10 @@ public class UserAdminService {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         return text;
+    }
+
+    private String normalizeClassCode(Object value) {
+        return stringValue(value).toUpperCase(Locale.ROOT);
     }
 
     private String stringValue(Object value) {

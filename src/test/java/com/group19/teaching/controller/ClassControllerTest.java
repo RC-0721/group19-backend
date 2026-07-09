@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -90,6 +91,25 @@ class ClassControllerTest {
                         .content("{\"major_id\":\"major-cs\",\"class_name\":\"智能 2026 班\",\"status\":\"启用\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("40301"));
+    }
+
+    @Test
+    void updateJoinCodeAllowsTeacherOrAdmin() throws Exception {
+        User teacher = user(2L, "teacher001", "TEACHER");
+        when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
+        when(classService.updateJoinCode(eq("class-cs-2026"), anyMap(), ArgumentMatchers.eq(teacher)))
+                .thenReturn(Map.of(
+                        "class_id", "class-cs-2026",
+                        "class_code", "CS2026A"
+                ));
+
+        mockMvc.perform(put("/api/classes/class-cs-2026/join-code")
+                        .header("token", "teacher-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"class_code\":\"cs2026a\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.class_code").value("CS2026A"));
     }
 
     private static User user(Long id, String account, String role) {

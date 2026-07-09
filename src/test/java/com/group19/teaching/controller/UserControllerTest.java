@@ -180,6 +180,36 @@ class UserControllerTest {
     }
 
     @Test
+    void registerStudentDoesNotRequireAdminToken() throws Exception {
+        when(userAdminService.registerStudent(anyMap())).thenReturn(Map.of(
+                "user_id", "10",
+                "account", "student002",
+                "name", "学生二",
+                "role", "STUDENT",
+                "status", "ENABLED",
+                "student_no", "2026002",
+                "class_id", "class-cs-2026",
+                "class_code", "CS2026"
+        ));
+
+        mockMvc.perform(post("/api/users/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "account": "student002",
+                                  "password": "123456",
+                                  "name": "学生二",
+                                  "student_no": "2026002",
+                                  "class_code": "CS2026"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.role").value("STUDENT"))
+                .andExpect(jsonPath("$.data.class_id").value("class-cs-2026"));
+    }
+
+    @Test
     void updateUserRejectsNonAdmin() throws Exception {
         when(authService.requireRole("teacher-token", "EDU_ADMIN"))
                 .thenThrow(new BusinessException(ErrorCode.FORBIDDEN));

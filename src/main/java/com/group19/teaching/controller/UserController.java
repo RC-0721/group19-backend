@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/users")
-@RequireRole("EDU_ADMIN")
 public class UserController {
 
     private final UserAdminService userAdminService;
@@ -28,6 +27,7 @@ public class UserController {
     }
 
     @GetMapping
+    @RequireRole("EDU_ADMIN")
     public ApiResponse<Map<String, Object>> list(
             @RequestParam(value = "role", required = false) String role,
             @RequestParam(value = "status", required = false) String status,
@@ -53,13 +53,20 @@ public class UserController {
     }
 
     @PostMapping
+    @RequireRole("EDU_ADMIN")
     public ApiResponse<Map<String, Object>> createUser(
             @RequestAttribute(RequireRoleInterceptor.CURRENT_USER_ATTRIBUTE) User actor,
             @RequestBody Map<String, Object> request) {
         return ApiResponse.success(userAdminService.createUser(request, actor));
     }
 
+    @PostMapping("/register")
+    public ApiResponse<Map<String, Object>> registerStudent(@RequestBody Map<String, Object> request) {
+        return ApiResponse.success(userAdminService.registerStudent(request));
+    }
+
     @PutMapping("/{userId}")
+    @RequireRole("EDU_ADMIN")
     public ApiResponse<Map<String, Object>> updateUser(
             @RequestAttribute(RequireRoleInterceptor.CURRENT_USER_ATTRIBUTE) User actor,
             @PathVariable Long userId,

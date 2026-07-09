@@ -48,13 +48,15 @@ class ClassServiceTest {
                 "major_id", "major-cs",
                 "class_name", "智能 2026 班",
                 "grade", "2026",
+                "class_code", "AI2026",
                 "status", "启用"
         ), actor);
 
         assertEquals("major-cs", result.get("major_id"));
         assertEquals("智能 2026 班", result.get("class_name"));
+        assertEquals("AI2026", result.get("class_code"));
         verify(jdbcTemplate).update(contains("INSERT INTO `class`"),
-                any(), eq("major-cs"), eq("智能 2026 班"), eq("2026"), eq(""), eq("启用"));
+                any(), eq("major-cs"), eq("智能 2026 班"), eq("2026"), eq(""), eq("AI2026"), eq("启用"));
         verify(jdbcTemplate).update(contains("INSERT INTO operation_log"),
                 any(), eq("9"), eq("EDU_ADMIN"), eq("CREATE_CLASS"));
     }
@@ -89,6 +91,40 @@ class ClassServiceTest {
                 eq("停用"), eq("计软 2026 班"), eq("class-cs-2026"));
         verify(jdbcTemplate).update(contains("INSERT INTO operation_log"),
                 any(), eq("9"), eq("EDU_ADMIN"), eq("UPDATE_CLASS"));
+    }
+
+    @Test
+    void updateJoinCodeChecksTeacherScopeAndUpdatesCode() {
+        User actor = user(2L, "teacher001", "TEACHER");
+        when(jdbcTemplate.queryForObject(contains("cc.teacher_id = ?"), eq(Integer.class),
+                eq("class-cs-2026"), eq("teacher001"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(contains("class_code = ? AND class_id <> ?"), eq(Integer.class),
+                eq("CS2026A"), eq("class-cs-2026"))).thenReturn(0);
+
+        Map<String, Object> result = classService.updateJoinCode("class-cs-2026",
+                Map.of("class_code", "cs2026a"), actor);
+
+        assertEquals("class-cs-2026", result.get("class_id"));
+        assertEquals("CS2026A", result.get("class_code"));
+        verify(jdbcTemplate).update("UPDATE `class` SET class_code = ? WHERE class_id = ?",
+                "CS2026A", "class-cs-2026");
+        verify(jdbcTemplate).update(contains("INSERT INTO operation_log"),
+                any(), eq("2"), eq("TEACHER"), eq("UPDATE_CLASS_JOIN_CODE"));
+    }
+
+    @Test
+    void updateJoinCodeRejectsDuplicateCode() {
+        User actor = user(9L, "admin001", "EDU_ADMIN");
+        when(jdbcTemplate.queryForObject(contains("FROM `class` c WHERE c.class_id = ?"),
+                eq(Integer.class), eq("class-cs-2026"))).thenReturn(1);
+        when(jdbcTemplate.queryForObject(contains("class_code = ? AND class_id <> ?"), eq(Integer.class),
+                eq("CS2026A"), eq("class-cs-2026"))).thenReturn(1);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> classService.updateJoinCode("class-cs-2026",
+                        Map.of("class_code", "cs2026a"), actor));
+
+        assertEquals(ErrorCode.STATE_NOT_ALLOWED, exception.errorCode());
     }
 
     @Test

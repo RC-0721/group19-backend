@@ -55,4 +55,13 @@ public class ClassController {
         User actor = authService.requireRole(token, "EDU_ADMIN");
         return ApiResponse.success(classService.update(classId, request, actor));
     }
+
+    @PutMapping("/{classId}/join-code")
+    public ApiResponse<Map<String, Object>> updateJoinCode(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String classId,
+            @RequestBody Map<String, Object> request) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(classService.updateJoinCode(classId, request, actor));
+    }
 }

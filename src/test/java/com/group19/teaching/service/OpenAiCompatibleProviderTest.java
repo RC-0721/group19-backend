@@ -90,6 +90,47 @@ class OpenAiCompatibleProviderTest {
         }
     }
 
+    @Test
+    void streamSkipsNullAndMissingDeltaContent() throws IOException {
+        Path resources = keyFile("resources.key", "resources-key");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = """
+                    data: {"choices":[{"delta":{"role":"assistant","content":null}}]}
+
+                    data: {"choices":[{"delta":{"role":"assistant"}}]}
+
+                    data: {"choices":[{"delta":{"content":""}}]}
+
+                    data: {"choices":[{"delta":{"content":"o"}}]}
+
+                    data: {"choices":[{"delta":{"content":"k"}}]}
+
+                    data: [DONE]
+
+                    """.getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(new ObjectMapper(),
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    resources.toString(), "", "", "", "deepseek-v4-flash", 1000);
+            List<String> deltas = new ArrayList<>();
+
+            AiProviderStreamResult result = provider.stream(new AiRequest("CHAT", "hello", ""), deltas::add);
+
+            assertEquals("ok", result.content());
+            assertEquals(List.of("o", "k"), deltas);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private OpenAiCompatibleProvider provider(Path resources, Path interview, Path admin, Path assistant) {
         return new OpenAiCompatibleProvider(new ObjectMapper(), "https://api.deepseek.com",
                 resources.toString(), interview.toString(), admin.toString(),

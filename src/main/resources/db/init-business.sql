@@ -119,10 +119,20 @@ CREATE TABLE IF NOT EXISTS `class` (
   class_name VARCHAR(100) NOT NULL,
   grade VARCHAR(20),
   counselor_id VARCHAR(64),
+  class_code VARCHAR(64),
   status VARCHAR(20) NOT NULL DEFAULT '启用',
+  UNIQUE KEY uk_class_code (class_code),
   INDEX idx_class_major_status (major_id, status),
   INDEX idx_class_grade (grade)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'class' AND COLUMN_NAME = 'class_code');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE `class` ADD COLUMN class_code VARCHAR(64)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE `class` SET class_code = UPPER(REPLACE(class_id, 'class-', 'CLS-')) WHERE class_code IS NULL OR class_code = '';
+SET @index_exists = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'class' AND INDEX_NAME = 'uk_class_code');
+SET @sql = IF(@index_exists = 0, 'ALTER TABLE `class` ADD UNIQUE KEY uk_class_code (class_code)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS course_class (
   course_class_id VARCHAR(64) PRIMARY KEY,
@@ -1083,9 +1093,9 @@ INSERT INTO teaching_standard (standard_id, major_id, course_id, standard_type, 
   ('standard-java-backend', 'major-cs', 'course-java-001', '课程目标', 'Java 后端就业能力课程目标', '覆盖 Java 基础、数据库、缓存、网络、操作系统和后端框架核心知识，支撑学生完成后端就业能力训练。', '2026', '启用')
 ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), course_id=VALUES(course_id), standard_type=VALUES(standard_type), title=VALUES(title), content=VALUES(content), version=VALUES(version), status=VALUES(status);
 
-INSERT INTO `class` (class_id, major_id, class_name, grade, counselor_id, status) VALUES
-  ('class-cs-2026', 'major-cs', '计软 2026 班', '2026', NULL, '启用')
-ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), class_name=VALUES(class_name), grade=VALUES(grade), counselor_id=VALUES(counselor_id), status=VALUES(status);
+INSERT INTO `class` (class_id, major_id, class_name, grade, counselor_id, class_code, status) VALUES
+  ('class-cs-2026', 'major-cs', '计软 2026 班', '2026', NULL, 'CS2026', '启用')
+ON DUPLICATE KEY UPDATE major_id=VALUES(major_id), class_name=VALUES(class_name), grade=VALUES(grade), counselor_id=VALUES(counselor_id), class_code=VALUES(class_code), status=VALUES(status);
 
 INSERT INTO course_class (course_class_id, course_id, class_id, teacher_id, semester, status) VALUES
   ('class-java-001', 'course-java-001', 'class-cs-2026', 'teacher001', '2026 春季', '开课中')

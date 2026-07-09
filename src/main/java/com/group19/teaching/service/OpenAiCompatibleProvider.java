@@ -133,7 +133,11 @@ public class OpenAiCompatibleProvider implements AiProvider {
                         break;
                     }
                     JsonNode root = objectMapper.readTree(data);
-                    String delta = root.path("choices").path(0).path("delta").path("content").asText();
+                    JsonNode deltaNode = root.path("choices").path(0).path("delta").path("content");
+                    if (deltaNode.isMissingNode() || deltaNode.isNull()) {
+                        continue;
+                    }
+                    String delta = deltaNode.asText();
                     if (StringUtils.hasText(delta)) {
                         content.append(delta);
                         if (handler != null) {

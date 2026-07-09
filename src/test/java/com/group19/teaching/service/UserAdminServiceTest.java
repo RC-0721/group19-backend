@@ -210,6 +210,63 @@ class UserAdminServiceTest {
     }
 
     @Test
+    void registerStudentCreatesEnabledStudentProfileByClassCode() {
+        when(userRepository.findByAccount("student002")).thenReturn(Optional.empty());
+        when(jdbcTemplate.queryForList(contains("WHERE class_code = ? AND status = '启用'"), eq("CS2026")))
+                .thenReturn(java.util.List.of(Map.of(
+                        "class_id", "class-cs-2026",
+                        "major_id", "major-cs",
+                        "class_code", "CS2026"
+                )));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            User saved = invocation.getArgument(0);
+            saved.setId(10L);
+            return null;
+        }).when(userRepository).save(any(User.class));
+
+        Map<String, Object> result = userAdminService.registerStudent(Map.of(
+                "account", "student002",
+                "password", "123456",
+                "name", "学生二",
+                "student_no", "2026002",
+                "class_code", "cs2026"
+        ));
+
+        assertEquals("10", result.get("user_id"));
+        assertEquals("STUDENT", result.get("role"));
+        assertEquals("class-cs-2026", result.get("class_id"));
+        assertEquals("CS2026", result.get("class_code"));
+        verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(saved ->
+                "student002".equals(saved.getAccount())
+                        && passwordEncoder.matches("123456", saved.getPasswordHash())
+                        && "学生二".equals(saved.getName())
+                        && "STUDENT".equals(saved.getRole())
+                        && "ENABLED".equals(saved.getStatus())));
+        verify(jdbcTemplate).update(contains("INSERT INTO student_profile"),
+                eq("student002"), eq("student002"), eq("2026002"), eq("major-cs"),
+                eq("class-cs-2026"), eq(null), eq(null));
+    }
+
+    @Test
+    void registerStudentRejectsUnknownClassCode() {
+        when(userRepository.findByAccount("student002")).thenReturn(Optional.empty());
+        when(jdbcTemplate.queryForList(contains("WHERE class_code = ? AND status = '启用'"), eq("MISSING")))
+                .thenReturn(java.util.List.of());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userAdminService.registerStudent(Map.of(
+                        "account", "student002",
+                        "password", "123456",
+                        "name", "学生二",
+                        "student_no", "2026002",
+                        "class_code", "missing"
+                )));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
     void createUserRejectsDuplicateAccount() {
         when(userRepository.findByAccount("student001")).thenReturn(Optional.of(user(1L, "student001", "STUDENT", "ENABLED")));
 
