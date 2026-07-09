@@ -5,6 +5,8 @@ import com.group19.teaching.service.AuthService;
 import com.group19.teaching.service.StudentDashboardService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,5 +36,13 @@ public class StudentDashboardController {
             @RequestParam("page_size") Integer pageSize) {
         return ApiResponse.success(studentDashboardService.listCourses(
                 authService.requireRole(token, "STUDENT"), pageNo, pageSize));
+    }
+
+    @PostMapping("/classes/join")
+    public ApiResponse<Map<String, Object>> joinClass(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestBody Map<String, Object> request) {
+        return ApiResponse.success(studentDashboardService.joinClass(
+                authService.requireRole(token, "STUDENT"), request));
     }
 }

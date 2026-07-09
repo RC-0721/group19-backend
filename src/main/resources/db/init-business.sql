@@ -669,6 +669,18 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'logic_score');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN logic_score FLOAT', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'knowledge_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN knowledge_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'depth_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN depth_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'communication_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN communication_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'reflection_score');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN reflection_score FLOAT', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @column_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_interview_report' AND COLUMN_NAME = 'strengths');
 SET @sql = IF(@column_exists = 0, 'ALTER TABLE ai_interview_report ADD COLUMN strengths TEXT', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -690,6 +702,15 @@ SET overall_score = score,
     weaknesses = weakness,
     suggestions = suggestion
 WHERE overall_score IS NULL;
+UPDATE ai_interview_report
+SET knowledge_score = COALESCE(knowledge_score, technical_score),
+    depth_score = COALESCE(depth_score, technical_score),
+    communication_score = COALESCE(communication_score, expression_score),
+    reflection_score = COALESCE(reflection_score, overall_score)
+WHERE knowledge_score IS NULL
+   OR depth_score IS NULL
+   OR communication_score IS NULL
+   OR reflection_score IS NULL;
 
 CREATE TABLE IF NOT EXISTS ai_interview_transcript_segment (
   segment_id VARCHAR(64) PRIMARY KEY,

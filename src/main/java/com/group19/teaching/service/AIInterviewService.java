@@ -1,5 +1,8 @@
 package com.group19.teaching.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.group19.teaching.common.BusinessException;
 import com.group19.teaching.common.ErrorCode;
 import com.group19.teaching.domain.entity.User;
@@ -31,6 +34,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class AIInterviewService {
 
     private static final String MODEL = "mock-ai";
+    private static final String INTRODUCTION_PROMPT = "请先进行自我介绍，介绍你的学习背景、项目经验和目标岗位相关技术。";
+    private static final String INTERVIEW_FALLBACK =
+            "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。";
     private static final Set<String> TRANSCRIPT_SOURCES = Set.of("student_audio", "student_text", "ai_text", "manual");
     private static final Set<String> STUDENT_MESSAGE_SOURCES = Set.of("student_text", "student_audio_stt", "manual");
     private static final Set<String> MEDIA_TYPES = Set.of("video", "screenshot", "audio");
@@ -41,6 +47,22 @@ public class AIInterviewService {
     private static final Set<String> VIDEO_EXTENSIONS = Set.of("webm", "mp4");
     private static final Set<String> AUDIO_EXTENSIONS = Set.of("webm", "mp3", "m4a", "wav");
     private static final Set<String> SCREENSHOT_EXTENSIONS = Set.of("png", "jpg", "jpeg");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final List<ScoreDimension> SCORE_DIMENSIONS = List.of(
+            new ScoreDimension("knowledge", "专业知识", "岗位相关基础概念、工具、框架、行业常识的掌握范围"),
+            new ScoreDimension("depth", "技术深度", "对技术或业务领域理解的透彻程度，能否深入原理、边界与局限"),
+            new ScoreDimension("project", "项目表达", "过往项目的复杂度、个人贡献、成果量化和工程素养"),
+            new ScoreDimension("logic", "逻辑结构", "分析拆解问题的结构化能力、推导严密性和问题解决策略"),
+            new ScoreDimension("communication", "沟通呈现", "表达清晰度、简洁性、倾听理解力与协作沟通"),
+            new ScoreDimension("reflection", "复盘改进", "自我认知、经验教训总结深度、学习意愿与成长潜力")
+    );
+    private static final String REPORT_SYSTEM_PROMPT = """
+            你是一位严格、公正的面试评估专家。请根据面试对话记录，从六个维度给出 1-10 的整数分。
+            六个维度：knowledge 专业知识、depth 技术深度、project 项目表达、logic 逻辑结构、communication 沟通呈现、reflection 复盘改进。
+            必须基于记录中的具体行为证据评分，敢于拉开分差，不要全部集中在 5-7 分。
+            只输出纯净 JSON，不要输出 Markdown、解释或额外文字。JSON 格式：
+            {"dimension_scores":{"knowledge":7,"depth":6,"project":8,"logic":7,"communication":6,"reflection":5},"overall_score":7,"summary":"一句话综合评价"}
+            """;
 
     private final JdbcTemplate jdbcTemplate;
     private final AiService aiService;
@@ -147,29 +169,20 @@ public class AIInterviewService {
                 || roundCount < 1 || roundCount > 20) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
-        Map<String, Object> job = requireJob(jobId);
+        requireJob(jobId);
         String sessionId = "session-" + UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
-        ChatResult question = chat(scene, "请结合" + job.get("job_name") + "方向，生成一道" + difficultyLevel + "面试开场题。",
-                actor, "请结合" + job.get("job_name") + "方向，说明你最熟悉的一项技术实践。");
         jdbcTemplate.update("""
                 INSERT INTO ai_session
                     (session_id, student_id, job_id, scene, model, prompt_version, status,
                      current_round, round_count, started_at, created_time, updated_time)
                 VALUES (?, ?, ?, ?, ?, ?, '进行中', 0, ?, ?, ?, ?)
-                """, sessionId, actor.getAccount(), jobId, scene, question.model(), promptVersion,
+                """, sessionId, actor.getAccount(), jobId, scene, MODEL, promptVersion,
                 roundCount, Timestamp.valueOf(now), Timestamp.valueOf(now), Timestamp.valueOf(now));
-        if (aiService == null) {
-            jdbcTemplate.update("""
-                    INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
-                    VALUES (?, ?, ?, ?, ?, ?, '成功')
-                    """, "ai-log-" + UUID.randomUUID(), scene, MODEL, promptVersion,
-                    "start:" + jobId + ":" + difficultyLevel, question.content());
-        }
         return Map.of(
                 "session_id", sessionId,
                 "status", "进行中",
-                "first_question", question.content(),
+                "first_question", INTRODUCTION_PROMPT,
                 "current_round", 0,
                 "round_count", roundCount,
                 "started_at", Timestamp.valueOf(now),
@@ -390,8 +403,7 @@ public class AIInterviewService {
         int roundNo = intValue(session.get("current_round"), 0) + 1;
         saveStudentMessage(sessionId, messageRequest, roundNo);
         String referenceChunk = firstReferenceChunk();
-        ChatResult reply = chat(stringValue(session.get("scene")), messageRequest.content(), actor,
-                "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。");
+        ChatResult reply = chat(buildInterviewAiRequest(session, messageRequest.content()), actor, INTERVIEW_FALLBACK);
         String aiMessageId = "msg-" + UUID.randomUUID();
         return saveAiMessageAndAdvanceRound(session, aiMessageId, reply.content(), referenceChunk, roundNo);
     }
@@ -429,14 +441,13 @@ public class AIInterviewService {
 
     private String streamAiReply(SseEmitter emitter, Map<String, Object> session, String content, User actor) {
         if (aiService == null) {
-            String fallback = "Mock 面试反馈：回答已覆盖基础概念，请补充项目场景、关键取舍和验证结果。";
-            sendDelta(emitter, fallback);
+            sendDelta(emitter, INTERVIEW_FALLBACK);
             jdbcTemplate.update("""
                     INSERT INTO ai_call_log (log_id, scene, model, prompt_version, input_summary, output_summary, call_status)
                     VALUES (?, ?, ?, ?, ?, ?, '成功')
                     """, "ai-log-" + UUID.randomUUID(), "AI_INTERVIEW_CHAT", MODEL,
-                    stringValue(session.get("prompt_version")), limitForPrompt(content), fallback);
-            return fallback;
+                    stringValue(session.get("prompt_version")), limitForPrompt(content), INTERVIEW_FALLBACK);
+            return INTERVIEW_FALLBACK;
         }
         Map<String, Object> aiRequest = buildInterviewAiRequest(session, content);
         AiProviderStreamResult result = aiService.streamChat(aiRequest, actor, delta -> sendDelta(emitter, delta));
@@ -487,6 +498,8 @@ public class AIInterviewService {
         int roundCount = intValue(session.get("round_count"), 5);
         String jobName = jobName(stringValue(session.get("job_id")));
         String systemPrompt = "你是智慧课程学习与教学数据分析系统的 AI 面试官。"
+                + "会话创建时你只被设置为面试官身份，禁止主动输出任何开场回答。"
+                + "只有收到学生自我介绍或回答后，才可以基于学生内容回应。"
                 + "请围绕岗位和学生回答进行简洁追问，一次只问一个问题，不输出与面试无关的内容。";
         String prompt = "岗位：" + jobName + "\n"
                 + "场景：" + stringValue(session.get("scene")) + "\n"
@@ -494,7 +507,9 @@ public class AIInterviewService {
                 + "轮次：" + roundNo + "/" + roundCount + "\n"
                 + "最近对话：\n" + recentMessageText(stringValue(session.get("session_id"))) + "\n"
                 + "学生本轮回答：\n" + content + "\n"
-                + "请给出自然的面试官回应，并继续提出一个后续问题。";
+                + (roundNo == 1
+                ? "这是学生首次输入，通常是自我介绍。请先简短确认其自我介绍内容，再提出一个与目标岗位相关的后续问题。"
+                : "请给出自然的面试官回应，并继续提出一个后续问题。");
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("scene", "AI_INTERVIEW_CHAT");
         request.put("prompt", prompt);
@@ -594,31 +609,40 @@ public class AIInterviewService {
         String reportId = reportId(sessionId);
         String jobId = stringValue(session.get("job_id"));
         Timestamp generatedTime = Timestamp.valueOf(LocalDateTime.now());
-        double overallScore = 82.0;
-        double expressionScore = 80.0;
-        double technicalScore = 84.0;
-        double projectScore = 78.0;
-        double logicScore = 86.0;
-        String strengths = "能围绕岗位技术作答；基础概念较清晰";
-        String weaknesses = "项目化表达和细节验证不足";
-        String suggestions = "继续练习 Spring Boot、数据库和缓存场景题";
-        String nextActions = "补充一个项目复盘；练习 3 道 Redis 场景题；复盘一次完整面试记录";
+        InterviewReportScores scores = generateReportScores(session, actor);
+        double knowledgeScore = scores.dimensionScores().get("knowledge");
+        double depthScore = scores.dimensionScores().get("depth");
+        double projectScore = scores.dimensionScores().get("project");
+        double logicScore = scores.dimensionScores().get("logic");
+        double communicationScore = scores.dimensionScores().get("communication");
+        double reflectionScore = scores.dimensionScores().get("reflection");
+        double overallScore = scores.overallScore();
+        double expressionScore = communicationScore;
+        double technicalScore = Math.round((knowledgeScore + depthScore) / 2.0);
+        String strengths = scores.summary();
+        String weaknesses = "请结合报告六维评分定位最低维度并继续补强。";
+        String suggestions = "围绕专业知识、技术深度、项目表达、逻辑结构、沟通呈现和复盘改进做针对性复训。";
+        String nextActions = "复盘本次面试记录；补充项目量化结果；针对最低分维度完成一次专项练习。";
 
         jdbcTemplate.update("""
                 INSERT INTO ai_interview_report
                     (report_id, session_id, job_id, score, strength, weakness, suggestion,
                      overall_score, expression_score, technical_score, project_score, logic_score,
+                     knowledge_score, depth_score, communication_score, reflection_score,
                      strengths, weaknesses, suggestions, next_actions, generated_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE score = VALUES(score), strength = VALUES(strength),
                     weakness = VALUES(weakness), suggestion = VALUES(suggestion),
                     overall_score = VALUES(overall_score), expression_score = VALUES(expression_score),
                     technical_score = VALUES(technical_score), project_score = VALUES(project_score),
-                    logic_score = VALUES(logic_score), strengths = VALUES(strengths),
+                    logic_score = VALUES(logic_score), knowledge_score = VALUES(knowledge_score),
+                    depth_score = VALUES(depth_score), communication_score = VALUES(communication_score),
+                    reflection_score = VALUES(reflection_score), strengths = VALUES(strengths),
                     weaknesses = VALUES(weaknesses), suggestions = VALUES(suggestions),
                     next_actions = VALUES(next_actions), generated_time = VALUES(generated_time)
                 """, reportId, sessionId, jobId, overallScore, strengths, weaknesses, suggestions,
                 overallScore, expressionScore, technicalScore, projectScore, logicScore,
+                knowledgeScore, depthScore, communicationScore, reflectionScore,
                 strengths, weaknesses, suggestions, nextActions, generatedTime);
         jdbcTemplate.update("""
                 INSERT INTO ability_evidence (evidence_id, student_id, source_type, source_id, skill_id, score)
@@ -630,11 +654,21 @@ public class AIInterviewService {
         result.put("report_id", reportId);
         result.put("session_id", sessionId);
         result.put("job_id", jobId);
+        result.put("score", overallScore);
+        result.put("strength", strengths);
+        result.put("weakness", weaknesses);
+        result.put("suggestion", suggestions);
         result.put("overall_score", overallScore);
         result.put("expression_score", expressionScore);
         result.put("technical_score", technicalScore);
+        result.put("knowledge_score", knowledgeScore);
+        result.put("depth_score", depthScore);
         result.put("project_score", projectScore);
         result.put("logic_score", logicScore);
+        result.put("communication_score", communicationScore);
+        result.put("reflection_score", reflectionScore);
+        result.put("dimension_scores", scores.dimensionScores());
+        result.put("score_dimensions", scoreDimensions(scores.dimensionScores()));
         result.put("strengths", strengths);
         result.put("weaknesses", weaknesses);
         result.put("suggestions", suggestions);
@@ -645,9 +679,10 @@ public class AIInterviewService {
 
     public Map<String, Object> report(String sessionId, User actor) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT r.report_id, r.job_id, r.score, r.strength, r.weakness, r.suggestion,
+                SELECT r.report_id, r.session_id, r.job_id, r.score, r.strength, r.weakness, r.suggestion,
                        r.overall_score, r.expression_score, r.technical_score, r.project_score,
-                       r.logic_score, r.strengths, r.weaknesses, r.suggestions, r.next_actions,
+                       r.logic_score, r.knowledge_score, r.depth_score, r.communication_score,
+                       r.reflection_score, r.strengths, r.weaknesses, r.suggestions, r.next_actions,
                        r.generated_time, s.student_id
                 FROM ai_interview_report r
                 JOIN ai_session s ON r.session_id = s.session_id
@@ -667,6 +702,7 @@ public class AIInterviewService {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("report_id", report.get("report_id"));
+        result.put("session_id", report.get("session_id"));
         result.put("job_id", report.get("job_id"));
         result.put("score", report.get("score"));
         result.put("strength", report.get("strength"));
@@ -675,14 +711,209 @@ public class AIInterviewService {
         result.put("overall_score", report.get("overall_score"));
         result.put("expression_score", report.get("expression_score"));
         result.put("technical_score", report.get("technical_score"));
+        result.put("knowledge_score", report.get("knowledge_score"));
+        result.put("depth_score", report.get("depth_score"));
         result.put("project_score", report.get("project_score"));
         result.put("logic_score", report.get("logic_score"));
+        result.put("communication_score", report.get("communication_score"));
+        result.put("reflection_score", report.get("reflection_score"));
+        Map<String, Double> dimensionScores = dimensionScoresFromReport(report);
+        result.put("dimension_scores", dimensionScores);
+        result.put("score_dimensions", scoreDimensions(dimensionScores));
         result.put("strengths", report.get("strengths"));
         result.put("weaknesses", report.get("weaknesses"));
         result.put("suggestions", report.get("suggestions"));
         result.put("next_actions", report.get("next_actions"));
         result.put("generated_time", report.get("generated_time"));
         return result;
+    }
+
+    private InterviewReportScores generateReportScores(Map<String, Object> session, User actor) {
+        if (aiService == null) {
+            throw new BusinessException(ErrorCode.AI_UNAVAILABLE);
+        }
+        Map<String, Object> aiRequest = new LinkedHashMap<>();
+        aiRequest.put("scene", "AI_INTERVIEW_REPORT");
+        aiRequest.put("system_prompt", REPORT_SYSTEM_PROMPT);
+        aiRequest.put("prompt", buildReportPrompt(session));
+        Map<String, Object> aiResult = aiService.chat(aiRequest, actor);
+        return parseReportScores(stringValue(aiResult.get("content")));
+    }
+
+    private String buildReportPrompt(Map<String, Object> session) {
+        String sessionId = stringValue(session.get("session_id"));
+        return "请根据以下面试资料生成六维评分 JSON。\n"
+                + "岗位：" + jobName(stringValue(session.get("job_id"))) + "\n"
+                + "场景：" + stringValue(session.get("scene")) + "\n"
+                + "会话状态：" + stringValue(session.get("status")) + "\n"
+                + "轮次：" + intValue(session.get("current_round"), 0) + "/" + intValue(session.get("round_count"), 5) + "\n"
+                + "面试消息：\n" + reportMessageText(sessionId) + "\n"
+                + "转写片段：\n" + transcriptText(sessionId) + "\n"
+                + "媒体信息：\n" + mediaText(sessionId);
+    }
+
+    private String reportMessageText(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT sender_type, message_content, source, round_no
+                FROM ai_message
+                WHERE session_id = ?
+                ORDER BY COALESCE(round_no, 999999), created_time ASC, message_id ASC
+                """, sessionId);
+        if (rows.isEmpty()) {
+            return "无";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Map<String, Object> row : rows) {
+            String role = "ai".equalsIgnoreCase(stringValue(row.get("sender_type"))) ? "AI" : "学生";
+            text.append(role)
+                    .append("(round=").append(stringValue(row.get("round_no")))
+                    .append(", source=").append(stringValue(row.get("source"))).append(")：")
+                    .append(limitForPrompt(stringValue(row.get("message_content"))))
+                    .append('\n');
+        }
+        return text.toString().trim();
+    }
+
+    private String transcriptText(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT content, source, start_time, end_time, is_final
+                FROM ai_interview_transcript_segment
+                WHERE session_id = ?
+                ORDER BY start_time ASC, created_time ASC, segment_id ASC
+                """, sessionId);
+        if (rows.isEmpty()) {
+            return "无";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Map<String, Object> row : rows) {
+            text.append('[').append(stringValue(row.get("start_time"))).append('-')
+                    .append(stringValue(row.get("end_time"))).append(", ")
+                    .append(stringValue(row.get("source"))).append(", final=")
+                    .append(stringValue(row.get("is_final"))).append("] ")
+                    .append(limitForPrompt(stringValue(row.get("content"))))
+                    .append('\n');
+        }
+        return text.toString().trim();
+    }
+
+    private String mediaText(String sessionId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT media_type, file_name, mime_type, duration, file_size
+                FROM ai_interview_media
+                WHERE session_id = ?
+                ORDER BY created_time ASC, media_id ASC
+                """, sessionId);
+        if (rows.isEmpty()) {
+            return "无";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Map<String, Object> row : rows) {
+            text.append(stringValue(row.get("media_type")))
+                    .append(" file=").append(stringValue(row.get("file_name")))
+                    .append(" mime=").append(stringValue(row.get("mime_type")))
+                    .append(" duration=").append(stringValue(row.get("duration")))
+                    .append(" size=").append(stringValue(row.get("file_size")))
+                    .append('\n');
+        }
+        return text.toString().trim();
+    }
+
+    private InterviewReportScores parseReportScores(String content) {
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(extractJsonObject(content));
+            JsonNode dimensionNode = root.path("dimension_scores");
+            if (!dimensionNode.isObject()) {
+                throw new BusinessException(ErrorCode.AI_UNAVAILABLE);
+            }
+            int fallbackScore = score1To10(root.path("overall_score"), 5);
+            Map<String, Double> dimensions = new LinkedHashMap<>();
+            for (ScoreDimension dimension : SCORE_DIMENSIONS) {
+                int score1To10 = score1To10(dimensionNode.path(dimension.key()), fallbackScore);
+                dimensions.put(dimension.key(), (double) score1To10 * 10);
+            }
+            double overall = Math.round(dimensions.values().stream()
+                    .mapToDouble(Double::doubleValue)
+                    .average()
+                    .orElse(50.0));
+            String summary = stringValue(root.path("summary").asText(""));
+            if (!StringUtils.hasText(summary)) {
+                summary = "已根据本次面试记录生成六维能力评分。";
+            }
+            return new InterviewReportScores(dimensions, overall, summary);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.AI_UNAVAILABLE);
+        }
+    }
+
+    private String extractJsonObject(String content) {
+        String text = stringValue(content);
+        if (!StringUtils.hasText(text)) {
+            throw new IllegalArgumentException("empty AI report");
+        }
+        int fencedStart = text.indexOf("```");
+        if (fencedStart >= 0) {
+            int bodyStart = text.indexOf('\n', fencedStart);
+            int fencedEnd = text.indexOf("```", bodyStart < 0 ? fencedStart + 3 : bodyStart + 1);
+            if (bodyStart >= 0 && fencedEnd > bodyStart) {
+                text = text.substring(bodyStart + 1, fencedEnd).trim();
+            }
+        }
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            throw new IllegalArgumentException("missing JSON object");
+        }
+        return text.substring(start, end + 1);
+    }
+
+    private int score1To10(JsonNode node, int fallback) {
+        int score = fallback;
+        if (node != null && node.isNumber()) {
+            score = (int) Math.round(node.asDouble());
+        } else if (node != null && node.isTextual()) {
+            try {
+                score = (int) Math.round(Double.parseDouble(node.asText().trim()));
+            } catch (NumberFormatException ignored) {
+                score = fallback;
+            }
+        }
+        return Math.max(1, Math.min(10, score));
+    }
+
+    private Map<String, Double> dimensionScoresFromReport(Map<String, Object> report) {
+        Map<String, Double> scores = new LinkedHashMap<>();
+        double knowledge = doubleOrDefault(report.get("knowledge_score"), doubleOrDefault(report.get("technical_score"), 0));
+        double depth = doubleOrDefault(report.get("depth_score"), doubleOrDefault(report.get("technical_score"), 0));
+        double project = doubleOrDefault(report.get("project_score"), 0);
+        double logic = doubleOrDefault(report.get("logic_score"), 0);
+        double communication = doubleOrDefault(report.get("communication_score"),
+                doubleOrDefault(report.get("expression_score"), 0));
+        double reflection = doubleOrDefault(report.get("reflection_score"), 0);
+        scores.put("knowledge", knowledge);
+        scores.put("depth", depth);
+        scores.put("project", project);
+        scores.put("logic", logic);
+        scores.put("communication", communication);
+        scores.put("reflection", reflection);
+        return scores;
+    }
+
+    private List<Map<String, Object>> scoreDimensions(Map<String, Double> scores) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ScoreDimension dimension : SCORE_DIMENSIONS) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("key", dimension.key());
+            item.put("label", dimension.label());
+            item.put("score", scores.getOrDefault(dimension.key(), 0.0));
+            item.put("desc", dimension.desc());
+            result.add(item);
+        }
+        return result;
+    }
+
+    private double doubleOrDefault(Object value, double defaultValue) {
+        Double parsed = doubleValue(value);
+        return parsed == null ? defaultValue : parsed;
     }
 
     private Map<String, Object> requireJob(String jobId) {
@@ -915,11 +1146,11 @@ public class AIInterviewService {
         return filename.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
-    private ChatResult chat(String scene, String prompt, User actor, String fallbackContent) {
+    private ChatResult chat(Map<String, Object> request, User actor, String fallbackContent) {
         if (aiService == null) {
             return new ChatResult(MODEL, fallbackContent);
         }
-        Map<String, Object> result = aiService.chat(Map.of("scene", scene, "prompt", prompt), actor);
+        Map<String, Object> result = aiService.chat(request, actor);
         return new ChatResult(stringValue(result.get("model")), stringValue(result.get("content")));
     }
 
@@ -986,6 +1217,12 @@ public class AIInterviewService {
     }
 
     private record ChatResult(String model, String content) {
+    }
+
+    private record InterviewReportScores(Map<String, Double> dimensionScores, double overallScore, String summary) {
+    }
+
+    private record ScoreDimension(String key, String label, String desc) {
     }
 
     private record MessageRequest(String content, String source, String clientMessageId) {

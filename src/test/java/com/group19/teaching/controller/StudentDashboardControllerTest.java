@@ -2,6 +2,7 @@ package com.group19.teaching.controller;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(StudentDashboardController.class)
@@ -110,8 +112,41 @@ class StudentDashboardControllerTest {
                 .andExpect(jsonPath("$.data.records[0].progress").value(50));
     }
 
+    @Test
+    void joinClassUpdatesCurrentStudentClass() throws Exception {
+        User student = user("student001", "STUDENT");
+        when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
+        when(studentDashboardService.joinClass(student, Map.of("class_code", "CLS-FRONTEND-DOCKING-B")))
+                .thenReturn(Map.of(
+                        "student_id", "student001",
+                        "class_id", "class-frontend-b",
+                        "class_code", "CLS-FRONTEND-DOCKING-B",
+                        "class", Map.of(
+                                "class_id", "class-frontend-b",
+                                "class_name", "前端联调 B 班",
+                                "class_code", "CLS-FRONTEND-DOCKING-B"
+                        ),
+                        "course_classes", List.of(Map.of(
+                                "course_class_id", "cc-frontend-b",
+                                "course_id", "course-java-001",
+                                "course_name", "Java EE程序设计"
+                        ))
+                ));
+
+        mockMvc.perform(post("/api/student/classes/join")
+                        .header("token", "student-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"class_code\":\"CLS-FRONTEND-DOCKING-B\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.class_id").value("class-frontend-b"))
+                .andExpect(jsonPath("$.data.class.class_code").value("CLS-FRONTEND-DOCKING-B"))
+                .andExpect(jsonPath("$.data.course_classes[0].course_class_id").value("cc-frontend-b"));
+    }
+
     private static User user(String account, String role) {
         User user = new User();
+        user.setId(1L);
         user.setAccount(account);
         user.setRole(role);
         return user;

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.group19.teaching.common.BusinessException;
@@ -171,6 +173,74 @@ class StudentDashboardServiceTest {
                 () -> studentDashboardService.listCourses(user("student001"), 0, 10));
 
         assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+    }
+
+    @Test
+    void joinClassUpdatesProfileAndReturnsClassContext() {
+        User actor = user("student001");
+        actor.setId(1L);
+        when(jdbcTemplate.queryForList(contains("WHERE class_code = ? AND status = '启用'"),
+                eq("CLS-FRONTEND-DOCKING-B")))
+                .thenReturn(List.of(Map.of(
+                        "class_id", "class-frontend-b",
+                        "major_id", "major-cs",
+                        "class_code", "CLS-FRONTEND-DOCKING-B"
+                )));
+        when(jdbcTemplate.queryForList(contains("LEFT JOIN major m"), eq("class-frontend-b")))
+                .thenReturn(List.of(Map.of(
+                        "class_id", "class-frontend-b",
+                        "major_id", "major-cs",
+                        "major_name", "计算机科学与技术",
+                        "class_name", "前端联调 B 班",
+                        "class_code", "CLS-FRONTEND-DOCKING-B",
+                        "status", "启用"
+                )));
+        when(jdbcTemplate.queryForList(contains("COALESCE(u.name"), eq("class-frontend-b")))
+                .thenReturn(List.of(Map.of(
+                        "course_class_id", "cc-frontend-b",
+                        "course_id", "course-java-001",
+                        "course_name", "Java EE程序设计",
+                        "class_id", "class-frontend-b",
+                        "teacher_id", "teacher001",
+                        "teacher_name", "教师一",
+                        "semester", "2025-2026-2",
+                        "status", "开课中"
+                )));
+
+        Map<String, Object> result = studentDashboardService.joinClass(actor,
+                Map.of("class_code", "cls-frontend-docking-b"));
+
+        assertEquals("student001", result.get("student_id"));
+        assertEquals("class-frontend-b", result.get("class_id"));
+        assertEquals("CLS-FRONTEND-DOCKING-B", result.get("class_code"));
+        assertEquals("CLS-FRONTEND-DOCKING-B", ((Map<?, ?>) result.get("class")).get("class_code"));
+        assertEquals("cc-frontend-b", ((Map<?, ?>) ((List<?>) result.get("course_classes")).get(0))
+                .get("course_class_id"));
+        verify(jdbcTemplate).update(contains("INSERT INTO student_profile"),
+                eq("student001"), eq("student001"), eq("student001"), eq("major-cs"),
+                eq("class-frontend-b"), eq(null), eq(null));
+        verify(jdbcTemplate).update(contains("INSERT INTO operation_log"),
+                org.mockito.ArgumentMatchers.any(), eq("1"), eq("STUDENT"), eq("JOIN_CLASS"));
+    }
+
+    @Test
+    void joinClassRejectsInvalidCode() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> studentDashboardService.joinClass(user("student001"), Map.of("class_code", "中文班级")));
+
+        assertEquals(ErrorCode.PARAM_ERROR, exception.errorCode());
+        verifyNoInteractions(jdbcTemplate);
+    }
+
+    @Test
+    void joinClassRejectsMissingClass() {
+        when(jdbcTemplate.queryForList(contains("WHERE class_code = ? AND status = '启用'"), eq("MISSING")))
+                .thenReturn(List.of());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> studentDashboardService.joinClass(user("student001"), Map.of("class_code", "missing")));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
     }
 
     private static User user(String account) {

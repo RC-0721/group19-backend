@@ -263,19 +263,30 @@ class AIInterviewControllerTest {
     void generateReportReturnsReport() throws Exception {
         User student = user("student001", "STUDENT");
         when(authService.requireRole("student-token", "STUDENT")).thenReturn(student);
-        when(interviewService.generateReport("session-1", student)).thenReturn(Map.of(
-                "report_id", "report-1",
-                "session_id", "session-1",
-                "job_id", "job-java-backend",
-                "overall_score", 82.0,
-                "expression_score", 80.0
+        when(interviewService.generateReport("session-1", student)).thenReturn(Map.ofEntries(
+                Map.entry("report_id", "report-1"),
+                Map.entry("session_id", "session-1"),
+                Map.entry("job_id", "job-java-backend"),
+                Map.entry("overall_score", 65.0),
+                Map.entry("expression_score", 60.0),
+                Map.entry("technical_score", 65.0),
+                Map.entry("knowledge_score", 70.0),
+                Map.entry("depth_score", 60.0),
+                Map.entry("project_score", 80.0),
+                Map.entry("logic_score", 70.0),
+                Map.entry("communication_score", 60.0),
+                Map.entry("reflection_score", 50.0),
+                Map.entry("dimension_scores", Map.of("knowledge", 70.0)),
+                Map.entry("score_dimensions", List.of(Map.of("key", "knowledge", "label", "专业知识", "score", 70.0, "desc", "desc")))
         ));
 
         mockMvc.perform(post("/api/interviews/sessions/session-1/report/generate")
                         .header("token", "student-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.report_id").value("report-1"))
-                .andExpect(jsonPath("$.data.overall_score").value(82.0));
+                .andExpect(jsonPath("$.data.overall_score").value(65.0))
+                .andExpect(jsonPath("$.data.dimension_scores.knowledge").value(70.0))
+                .andExpect(jsonPath("$.data.score_dimensions[0].key").value("knowledge"));
     }
 
     @Test
@@ -289,14 +300,18 @@ class AIInterviewControllerTest {
                 "strength", "优势",
                 "weakness", "短板",
                 "suggestion", "建议",
-                "overall_score", 82.0
+                "overall_score", 82.0,
+                "knowledge_score", 80.0,
+                "score_dimensions", List.of(Map.of("key", "knowledge", "label", "专业知识", "score", 80.0, "desc", "desc")),
+                "dimension_scores", Map.of("knowledge", 80.0)
         ));
 
         mockMvc.perform(get("/api/interviews/sessions/session-1/report")
                         .header("token", "teacher-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.score").value(82.0))
-                .andExpect(jsonPath("$.data.overall_score").value(82.0));
+                .andExpect(jsonPath("$.data.overall_score").value(82.0))
+                .andExpect(jsonPath("$.data.dimension_scores.knowledge").value(80.0));
     }
 
     private static User user(String account, String role) {

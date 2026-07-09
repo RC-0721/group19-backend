@@ -9,9 +9,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -89,6 +92,40 @@ public class StudentDashboardService {
         );
     }
 
+    @Transactional
+    public Map<String, Object> joinClass(User actor, Map<String, Object> request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        String classCode = normalizeClassCode(request.get("class_code"));
+        if (!validClassCode(classCode)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+
+        Map<String, Object> classInfo = findEnabledClassByCode(classCode);
+        String studentId = actor.getAccount();
+        String classId = stringValue(classInfo.get("class_id"));
+        jdbcTemplate.update("""
+                INSERT INTO student_profile
+                  (student_id, user_id, student_no, major_id, class_id, target_job_id, enrollment_year)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                  user_id = VALUES(user_id),
+                  major_id = VALUES(major_id),
+                  class_id = VALUES(class_id)
+                """, studentId, studentId, studentId, stringValue(classInfo.get("major_id")),
+                classId, null, null);
+        writeOperationLog(actor, "JOIN_CLASS");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("student_id", studentId);
+        result.put("class_id", classId);
+        result.put("class_code", classCode);
+        result.put("class", currentClass(classId));
+        result.put("course_classes", currentCourseClasses(classId));
+        return result;
+    }
+
     private Map<String, Object> dashboard(
             List<Map<String, Object>> courses,
             List<Map<String, Object>> todos,
@@ -114,6 +151,46 @@ public class StudentDashboardService {
                 WHERE sp.student_id = ?
                 LIMIT 1
                 """, studentId);
+    }
+
+    private Map<String, Object> findEnabledClassByCode(String classCode) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT class_id, major_id, class_code
+                FROM `class`
+                WHERE class_code = ? AND status = '启用'
+                LIMIT 1
+                """, classCode);
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> currentClass(String classId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                SELECT c.class_id, c.major_id, m.major_name, c.class_name,
+                       c.grade, c.counselor_id, c.class_code, c.status
+                FROM `class` c
+                LEFT JOIN major m ON c.major_id = m.major_id
+                WHERE c.class_id = ?
+                LIMIT 1
+                """, classId);
+        return rows.isEmpty() ? Map.of() : new LinkedHashMap<>(rows.get(0));
+    }
+
+    private List<Map<String, Object>> currentCourseClasses(String classId) {
+        return jdbcTemplate.queryForList("""
+                SELECT cc.course_class_id, cc.course_id, c.course_name,
+                       cc.class_id, cls.class_name,
+                       cc.teacher_id, COALESCE(u.name, cc.teacher_id, '') AS teacher_name,
+                       cc.semester, cc.status
+                FROM course_class cc
+                LEFT JOIN course c ON cc.course_id = c.course_id
+                LEFT JOIN `class` cls ON cc.class_id = cls.class_id
+                LEFT JOIN sys_user u ON cc.teacher_id = u.account
+                WHERE cc.class_id = ?
+                ORDER BY cc.course_id, cc.course_class_id
+                """, classId);
     }
 
     private List<Map<String, Object>> courses(String studentId, List<Map<String, Object>> todos) {
@@ -369,6 +446,22 @@ public class StudentDashboardService {
         if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
+    }
+
+    private void writeOperationLog(User actor, String operationType) {
+        jdbcTemplate.update("""
+                INSERT INTO operation_log
+                  (log_id, user_id, role, module, operation_type, operation_result, operation_time)
+                VALUES (?, ?, ?, 'STUDENT_CLASS', ?, 'SUCCESS', CURRENT_TIMESTAMP)
+                """, "op-" + UUID.randomUUID(), String.valueOf(actor.getId()), actor.getRole(), operationType);
+    }
+
+    private boolean validClassCode(String value) {
+        return StringUtils.hasText(value) && value.length() <= 64 && value.matches("[A-Z0-9_-]+");
+    }
+
+    private String normalizeClassCode(Object value) {
+        return stringValue(value).toUpperCase(Locale.ROOT);
     }
 
     private Map<String, Object> firstRow(List<Map<String, Object>> rows) {
