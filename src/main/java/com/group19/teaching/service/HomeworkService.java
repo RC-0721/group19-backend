@@ -58,14 +58,27 @@ public class HomeworkService {
             Integer pageNo,
             Integer pageSize,
             User actor) {
+        return list(courseClassId, null, status, pageNo, pageSize, actor);
+    }
+
+    public Map<String, Object> list(
+            String courseClassId,
+            String classId,
+            String status,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
         if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
         }
         if (StringUtils.hasText(courseClassId)) {
             requireCourseClassAccess(courseClassId, actor);
         }
+        if (StringUtils.hasText(classId)) {
+            requireClassAccess(classId, actor);
+        }
         List<Object> params = new ArrayList<>();
-        String where = buildListWhere(courseClassId, status, actor, params);
+        String where = buildListWhere(courseClassId, classId, status, actor, params);
         Integer total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM homework h JOIN course_class cc ON h.course_class_id = cc.course_class_id " + where,
                 Integer.class, params.toArray());
         List<Object> pageParams = new ArrayList<>(params);
@@ -357,6 +370,68 @@ public class HomeworkService {
                     aiReview.put("score", item.get("ai_score"));
                     aiReview.put("comment", item.get("ai_comment"));
                     item.put("ai_review", aiReview);
+                    item.put("homework_review_id", item.get("review_id"));
+                    return item;
+                }).toList();
+        return Map.of(
+                "records", enrichedRecords,
+                "total", total == null ? 0 : total,
+                "page_no", pageNo,
+                "page_size", pageSize
+        );
+    }
+
+    public Map<String, Object> listSubmissions(
+            String homeworkId,
+            String classId,
+            String courseClassId,
+            String submitStatus,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        List<Object> params = new ArrayList<>();
+        String where = buildSubmissionWhere(homeworkId, classId, courseClassId, submitStatus, actor, params);
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM homework_submit hs
+                JOIN homework h ON h.homework_id = hs.homework_id
+                JOIN course_class cc ON cc.course_class_id = h.course_class_id
+                """ + where, Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT hs.submit_id, hs.homework_id, h.title AS homework_title,
+                       h.course_id, h.course_class_id, cc.class_id, cls.class_name,
+                       hs.student_id, sp.student_no,
+                       COALESCE(u.name, hs.student_id) AS student_name,
+                       hs.submit_content, hs.attachment_path, hs.submit_status, hs.submit_time,
+                       hr.review_id, hr.review_id AS homework_review_id,
+                       hr.ai_score, hr.ai_comment, hr.teacher_score, hr.teacher_comment, hr.review_time,
+                       cc.teacher_id, COALESCE(tu.name, cc.teacher_id) AS teacher_name
+                FROM homework_submit hs
+                JOIN homework h ON h.homework_id = hs.homework_id
+                JOIN course_class cc ON cc.course_class_id = h.course_class_id
+                LEFT JOIN `class` cls ON cls.class_id = cc.class_id
+                LEFT JOIN student_profile sp ON sp.student_id = hs.student_id
+                LEFT JOIN sys_user u ON u.account = hs.student_id
+                LEFT JOIN sys_user tu ON tu.account = cc.teacher_id
+                LEFT JOIN homework_review hr ON hr.submit_id = hs.submit_id
+                """ + where + """
+                ORDER BY hs.submit_time DESC, hs.submit_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        List<Map<String, Object>> enrichedRecords = records.stream()
+                .<Map<String, Object>>map(row -> {
+                    Map<String, Object> item = new LinkedHashMap<>(row);
+                    Map<String, Object> aiReview = new LinkedHashMap<>();
+                    aiReview.put("score", item.get("ai_score"));
+                    aiReview.put("comment", item.get("ai_comment"));
+                    item.put("ai_review", aiReview);
+                    item.put("review_status", item.get("teacher_score") == null ? "待批改" : "已批改");
                     return item;
                 }).toList();
         return Map.of(
@@ -516,7 +591,7 @@ public class HomeworkService {
         }
     }
 
-    private String buildListWhere(String courseClassId, String status, User actor, List<Object> params) {
+    private String buildListWhere(String courseClassId, String classId, String status, User actor, List<Object> params) {
         StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
         if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
             where.append("""
@@ -529,10 +604,13 @@ public class HomeworkService {
         } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
             where.append("AND cc.teacher_id = ?\n");
             params.add(actor.getAccount());
-        } else {
+        } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
+        } else {
+            // EDU_ADMIN can inspect all homework records.
         }
         append(where, params, "h.course_class_id", courseClassId);
+        append(where, params, "cc.class_id", classId);
         append(where, params, "h.status", status);
         return where.toString();
     }
@@ -552,12 +630,67 @@ public class HomeworkService {
                     FROM course_class
                     WHERE course_class_id = ? AND teacher_id = ?
                     """, Integer.class, courseClassId, actor.getAccount());
+        } else if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE course_class_id = ?
+                    """, Integer.class, courseClassId);
         } else {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
         if (count == null || count == 0) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
+    }
+
+    private void requireClassAccess(String classId, User actor) {
+        Integer count;
+        if ("STUDENT".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM student_profile
+                    WHERE class_id = ? AND student_id = ?
+                    """, Integer.class, classId, actor.getAccount());
+        } else if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM course_class
+                    WHERE class_id = ? AND teacher_id = ?
+                    """, Integer.class, classId, actor.getAccount());
+        } else if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            count = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM `class`
+                    WHERE class_id = ?
+                    """, Integer.class, classId);
+        } else {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        if (count == null || count == 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private String buildSubmissionWhere(
+            String homeworkId,
+            String classId,
+            String courseClassId,
+            String submitStatus,
+            User actor,
+            List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            where.append("AND cc.teacher_id = ?\n");
+            params.add(actor.getAccount());
+        } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        append(where, params, "hs.homework_id", homeworkId);
+        append(where, params, "cc.class_id", classId);
+        append(where, params, "h.course_class_id", courseClassId);
+        append(where, params, "hs.submit_status", submitStatus);
+        return where.toString();
     }
 
     private void append(StringBuilder where, List<Object> params, String column, String value) {

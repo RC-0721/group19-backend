@@ -192,6 +192,47 @@ class ProjectServiceTest {
     }
 
     @Test
+    void listAllSubmissionsReturnsAdminRows() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("project-1"), eq("class-1"),
+                eq("cc-1"), eq("待评价"))).thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("project-1"), eq("class-1"), eq("cc-1"),
+                eq("待评价"), eq(10), eq(0))).thenReturn(List.of(Map.of(
+                        "submission_id", "submit-1",
+                        "evaluation_id", "eval-1",
+                        "student_id", "student001",
+                        "class_id", "class-1",
+                        "course_class_id", "cc-1",
+                        "review_status", "待评价"
+                )));
+
+        Map<String, Object> result = projectService.listAllSubmissions(
+                "project-1", "class-1", "cc-1", "待评价", 1, 10, user("admin001", "EDU_ADMIN"));
+
+        assertEquals(1, result.get("total"));
+        Map<?, ?> record = (Map<?, ?>) ((List<?>) result.get("records")).get(0);
+        assertEquals("submit-1", record.get("submission_id"));
+        assertEquals("eval-1", record.get("evaluation_id"));
+        assertEquals("待评价", record.get("review_status"));
+    }
+
+    @Test
+    void listAllSubmissionsScopesTeacherRows() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("teacher001"), eq("待评价")))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), eq("teacher001"), eq("待评价"), eq(10), eq(0)))
+                .thenReturn(List.of(Map.of(
+                        "submission_id", "submit-1",
+                        "teacher_id", "teacher001",
+                        "submit_status", "待评价"
+                )));
+
+        Map<String, Object> result = projectService.listAllSubmissions(
+                null, null, null, "待评价", 1, 10, user("teacher001", "TEACHER"));
+
+        assertEquals(1, result.get("total"));
+    }
+
+    @Test
     void confirmEvaluationWritesAbilityEvidence() {
         when(jdbcTemplate.queryForList(anyString(), eq("eval-1"), eq("teacher001"))).thenReturn(List.of(Map.of(
                 "evaluation_id", "eval-1",

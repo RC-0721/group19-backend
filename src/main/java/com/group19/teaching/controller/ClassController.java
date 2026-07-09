@@ -64,4 +64,31 @@ public class ClassController {
         User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
         return ApiResponse.success(classService.updateJoinCode(classId, request, actor));
     }
+
+    @GetMapping("/{classId}/members")
+    public ApiResponse<Map<String, Object>> listMembers(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String classId,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(classService.listMembers(classId, courseClassId, pageNo, pageSize, actor));
+    }
+
+    @GetMapping("/{classId}/practice-records")
+    public ApiResponse<Map<String, Object>> listPracticeRecords(
+            @RequestHeader(value = "token", required = false) String token,
+            @PathVariable String classId,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "student_id", required = false) String studentId,
+            @RequestParam(value = "question_id", required = false) String questionId,
+            @RequestParam(value = "start_time", required = false) String startTime,
+            @RequestParam(value = "end_time", required = false) String endTime,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(classService.listPracticeRecords(
+                classId, courseClassId, studentId, questionId, startTime, endTime, pageNo, pageSize, actor));
+    }
 }

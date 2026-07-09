@@ -97,12 +97,13 @@ class HomeworkControllerTest {
     @Test
     void listSubmitsReturnsQueue() throws Exception {
         User teacher = user("teacher001", "TEACHER");
-        when(authService.requireRole("teacher-token", "TEACHER")).thenReturn(teacher);
+        when(authService.requireRole("teacher-token", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
         when(homeworkService.listSubmits("hw-1", "待批改", 1, 10, teacher)).thenReturn(Map.of(
                 "records", List.of(Map.of(
                         "submit_id", "submit-1",
                         "homework_id", "hw-1",
                         "review_id", "review-1",
+                        "homework_review_id", "review-1",
                         "student_name", "学生一",
                         "submit_status", "待批改",
                         "ai_review", Map.of("score", 60, "comment", "待教师确认")
@@ -121,11 +122,47 @@ class HomeworkControllerTest {
                 .andExpect(jsonPath("$.code").value("0"))
                 .andExpect(jsonPath("$.data.records[0].homework_id").value("hw-1"))
                 .andExpect(jsonPath("$.data.records[0].review_id").value("review-1"))
+                .andExpect(jsonPath("$.data.records[0].homework_review_id").value("review-1"))
                 .andExpect(jsonPath("$.data.records[0].student_name").value("学生一"))
                 .andExpect(jsonPath("$.data.records[0].submit_status").value("待批改"))
                 .andExpect(jsonPath("$.data.records[0].ai_review.score").value(60))
                 .andExpect(jsonPath("$.data.records[0].ai_review.comment").value("待教师确认"))
                 .andExpect(jsonPath("$.data.total").value(1));
+    }
+
+    @Test
+    void platformSubmissionsAllowsAdminFilters() throws Exception {
+        User admin = user("admin001", "EDU_ADMIN");
+        when(authService.requireRole("admin-token", "TEACHER", "EDU_ADMIN")).thenReturn(admin);
+        when(homeworkService.listSubmissions("hw-1", "class-cs-2026", "cc-1", "已批改", 1, 10, admin))
+                .thenReturn(Map.of(
+                        "records", List.of(Map.of(
+                                "submit_id", "submit-1",
+                                "homework_id", "hw-1",
+                                "review_id", "review-1",
+                                "homework_review_id", "review-1",
+                                "teacher_score", 90.0,
+                                "teacher_comment", "很好",
+                                "review_status", "已批改"
+                        )),
+                        "total", 1,
+                        "page_no", 1,
+                        "page_size", 10
+                ));
+
+        mockMvc.perform(get("/api/platform/homework-submissions")
+                        .header("token", "admin-token")
+                        .param("homework_id", "hw-1")
+                        .param("class_id", "class-cs-2026")
+                        .param("course_class_id", "cc-1")
+                        .param("submit_status", "已批改")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].homework_review_id").value("review-1"))
+                .andExpect(jsonPath("$.data.records[0].teacher_comment").value("很好"))
+                .andExpect(jsonPath("$.data.records[0].review_status").value("已批改"));
     }
 
     @Test

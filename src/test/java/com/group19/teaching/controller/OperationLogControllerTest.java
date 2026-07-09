@@ -33,7 +33,8 @@ class OperationLogControllerTest {
 
     @Test
     void listReturnsOperationLogs() throws Exception {
-        when(operationLogService.list("9", "USER", "UPDATE_USER", null, null, 1, 10)).thenReturn(Map.of(
+        when(operationLogService.list("9", "teacher001", null, "TEACHER",
+                "USER", "UPDATE_USER", null, null, 1, 10)).thenReturn(Map.of(
                 "records", List.of(Map.of("log_id", "op-1", "user_id", "9")),
                 "total", 1,
                 "page_no", 1,
@@ -43,6 +44,8 @@ class OperationLogControllerTest {
         mockMvc.perform(get("/api/logs/operations")
                         .header("token", "admin-token")
                         .param("user_id", "9")
+                        .param("account", "teacher001")
+                        .param("role", "TEACHER")
                         .param("module", "USER")
                         .param("operation_type", "UPDATE_USER")
                         .param("page_no", "1")
@@ -67,12 +70,14 @@ class OperationLogControllerTest {
 
     @Test
     void exportReturnsCsv() throws Exception {
-        when(operationLogService.exportCsv("9", null, null, null, null))
+        when(operationLogService.exportCsv("9", null, "teacher001", "TEACHER", null, null, null, null))
                 .thenReturn("log_id,user_id\nop-1,9\n");
 
         mockMvc.perform(get("/api/logs/operations/export")
                         .header("token", "admin-token")
-                        .param("user_id", "9"))
+                        .param("user_id", "9")
+                        .param("teacher_account", "teacher001")
+                        .param("role", "TEACHER"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "text/csv"))
                 .andExpect(content().string("log_id,user_id\nop-1,9\n"));

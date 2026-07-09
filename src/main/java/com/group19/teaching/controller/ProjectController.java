@@ -83,6 +83,20 @@ public class ProjectController {
         return ApiResponse.success(projectService.listSubmissions(projectTaskId, submitStatus, pageNo, pageSize, actor));
     }
 
+    @GetMapping({"/api/project-submissions", "/api/platform/project-submissions"})
+    public ApiResponse<Map<String, Object>> listAllSubmissions(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "project_task_id", required = false) String projectTaskId,
+            @RequestParam(value = "class_id", required = false) String classId,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "submit_status", required = false) String submitStatus,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(projectService.listAllSubmissions(
+                projectTaskId, classId, courseClassId, submitStatus, pageNo, pageSize, actor));
+    }
+
     @PutMapping("/api/project-evaluations/{evaluationId}")
     public ApiResponse<Map<String, Object>> confirmEvaluation(
             @RequestHeader(value = "token", required = false) String token,

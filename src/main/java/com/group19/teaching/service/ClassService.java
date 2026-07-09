@@ -148,6 +148,92 @@ public class ClassService {
         );
     }
 
+    public Map<String, Object> listMembers(
+            String classId,
+            String courseClassId,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        validatePage(pageNo, pageSize);
+        String effectiveClassId = requireClassScope(classId, courseClassId, actor);
+
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM student_profile sp
+                WHERE sp.class_id = ?
+                """, Integer.class, effectiveClassId);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT sp.student_id, sp.user_id, sp.student_no, sp.major_id, m.major_name,
+                       sp.class_id, c.class_name, ? AS course_class_id,
+                       sp.target_job_id, jd.job_name,
+                       COALESCE(u.name, sp.student_id) AS student_name,
+                       u.account, u.status AS user_status
+                FROM student_profile sp
+                LEFT JOIN sys_user u ON u.account = sp.student_id
+                LEFT JOIN `class` c ON c.class_id = sp.class_id
+                LEFT JOIN major m ON m.major_id = sp.major_id
+                LEFT JOIN job_direction jd ON jd.job_id = sp.target_job_id
+                WHERE sp.class_id = ?
+                ORDER BY sp.student_no, sp.student_id
+                LIMIT ? OFFSET ?
+                """, blankToNull(courseClassId), effectiveClassId, pageSize, (pageNo - 1) * pageSize);
+        return page(records, total, pageNo, pageSize);
+    }
+
+    public Map<String, Object> listPracticeRecords(
+            String classId,
+            String courseClassId,
+            String studentId,
+            String questionId,
+            String startTime,
+            String endTime,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        validatePage(pageNo, pageSize);
+        String effectiveClassId = requireClassScope(classId, courseClassId, actor);
+
+        List<Object> params = new ArrayList<>();
+        params.add(effectiveClassId);
+        StringBuilder where = new StringBuilder("WHERE sp.class_id = ?\n");
+        append(where, params, "pr.student_id", studentId);
+        append(where, params, "pr.question_id", questionId);
+        if (StringUtils.hasText(startTime)) {
+            where.append("AND pr.submit_time >= ?\n");
+            params.add(startTime.trim());
+        }
+        if (StringUtils.hasText(endTime)) {
+            where.append("AND pr.submit_time <= ?\n");
+            params.add(endTime.trim());
+        }
+
+        Integer total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM practice_record pr
+                JOIN student_profile sp ON sp.student_id = pr.student_id
+                JOIN question q ON q.question_id = pr.question_id
+                """ + where, Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT pr.record_id, pr.student_id, sp.student_no,
+                       COALESCE(u.name, pr.student_id) AS student_name,
+                       sp.class_id, ? AS course_class_id,
+                       pr.question_id, q.stem,
+                       CASE WHEN pr.is_correct THEN '正确' ELSE '错误' END AS answer_result,
+                       pr.score, pr.submit_time
+                FROM practice_record pr
+                JOIN student_profile sp ON sp.student_id = pr.student_id
+                JOIN question q ON q.question_id = pr.question_id
+                LEFT JOIN sys_user u ON u.account = pr.student_id
+                """ + where + """
+                ORDER BY pr.submit_time DESC, pr.record_id DESC
+                LIMIT ? OFFSET ?
+                """, prependCourseClass(pageParams, courseClassId).toArray());
+        return page(records, total, pageNo, pageSize);
+    }
+
     private String buildWhere(String majorId, String grade, String status, User actor, List<Object> params) {
         StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
         if (StringUtils.hasText(majorId)) {
@@ -259,6 +345,57 @@ public class ClassService {
         }
     }
 
+    private String requireClassScope(String classId, String courseClassId, User actor) {
+        if (!StringUtils.hasText(classId) && !StringUtils.hasText(courseClassId)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        if (StringUtils.hasText(courseClassId)) {
+            List<Object> params = new ArrayList<>();
+            params.add(courseClassId.trim());
+            StringBuilder sql = new StringBuilder("""
+                    SELECT cc.class_id
+                    FROM course_class cc
+                    WHERE cc.course_class_id = ?
+                    """);
+            if (StringUtils.hasText(classId)) {
+                sql.append("AND cc.class_id = ?\n");
+                params.add(classId.trim());
+            }
+            if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+                sql.append("AND cc.teacher_id = ?\n");
+                params.add(actor.getAccount());
+            }
+            sql.append("LIMIT 1");
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
+            if (rows.isEmpty()) {
+                throw new BusinessException(ErrorCode.FORBIDDEN);
+            }
+            return stringValue(rows.get(0).get("class_id"));
+        }
+        requireClassVisible(classId, actor);
+        return classId.trim();
+    }
+
+    private Map<String, Object> page(List<Map<String, Object>> records, Integer total, Integer pageNo, Integer pageSize) {
+        return Map.of(
+                "records", records,
+                "total", total == null ? 0 : total,
+                "page_no", pageNo,
+                "page_size", pageSize
+        );
+    }
+
+    private List<Object> prependCourseClass(List<Object> values, String courseClassId) {
+        List<Object> result = new ArrayList<>();
+        result.add(blankToNull(courseClassId));
+        result.addAll(values);
+        return result;
+    }
+
+    private Object blankToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     private void requireUniqueClassCode(String classCode, String classId) {
         if (!validClassCode(classCode)) {
             throw new BusinessException(ErrorCode.PARAM_ERROR);
@@ -299,5 +436,12 @@ public class ClassService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private void append(StringBuilder where, List<Object> params, String column, String value) {
+        if (StringUtils.hasText(value)) {
+            where.append("AND ").append(column).append(" = ?\n");
+            params.add(value.trim());
+        }
     }
 }

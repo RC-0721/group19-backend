@@ -41,6 +41,26 @@ class OperationLogServiceTest {
     }
 
     @Test
+    void listSupportsTeacherRoleAndAccountFilters() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), org.mockito.ArgumentMatchers.<Object[]>any()))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.<Object[]>any()))
+                .thenReturn(List.of(Map.of(
+                        "log_id", "op-1",
+                        "user_id", "2",
+                        "role", "TEACHER",
+                        "module", "HOMEWORK",
+                        "operation_type", "REVIEW"
+                )));
+
+        Map<String, Object> result = operationLogService.list(
+                null, "teacher001", null, "TEACHER", "HOMEWORK", null, null, null, 1, 10);
+
+        assertEquals(1, result.get("total"));
+        assertEquals(1, ((List<?>) result.get("records")).size());
+    }
+
+    @Test
     void listRejectsInvalidPageSize() {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> operationLogService.list(null, null, null, null, null, 1, 101));

@@ -27,6 +27,9 @@ public class OperationLogController {
     public ApiResponse<Map<String, Object>> list(
             @RequestHeader(value = "token", required = false) String token,
             @RequestParam(value = "user_id", required = false) String userId,
+            @RequestParam(value = "account", required = false) String account,
+            @RequestParam(value = "teacher_account", required = false) String teacherAccount,
+            @RequestParam(value = "role", required = false) String role,
             @RequestParam(value = "module", required = false) String module,
             @RequestParam(value = "operation_type", required = false) String operationType,
             @RequestParam(value = "start_time", required = false) String startTime,
@@ -35,13 +38,16 @@ public class OperationLogController {
             @RequestParam("page_size") Integer pageSize) {
         authService.requireRole(token, "EDU_ADMIN");
         return ApiResponse.success(operationLogService.list(
-                userId, module, operationType, startTime, endTime, pageNo, pageSize));
+                userId, account, teacherAccount, role, module, operationType, startTime, endTime, pageNo, pageSize));
     }
 
     @GetMapping("/api/logs/operations/export")
     public ResponseEntity<String> export(
             @RequestHeader(value = "token", required = false) String token,
             @RequestParam(value = "user_id", required = false) String userId,
+            @RequestParam(value = "account", required = false) String account,
+            @RequestParam(value = "teacher_account", required = false) String teacherAccount,
+            @RequestParam(value = "role", required = false) String role,
             @RequestParam(value = "module", required = false) String module,
             @RequestParam(value = "operation_type", required = false) String operationType,
             @RequestParam(value = "start_time", required = false) String startTime,
@@ -50,6 +56,7 @@ public class OperationLogController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=operation-logs.csv")
                 .contentType(new MediaType("text", "csv"))
-                .body(operationLogService.exportCsv(userId, module, operationType, startTime, endTime));
+                .body(operationLogService.exportCsv(userId, account, teacherAccount, role,
+                        module, operationType, startTime, endTime));
     }
 }

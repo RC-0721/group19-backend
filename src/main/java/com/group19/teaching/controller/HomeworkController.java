@@ -31,11 +31,12 @@ public class HomeworkController {
     public ApiResponse<Map<String, Object>> list(
             @RequestHeader(value = "token", required = false) String token,
             @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "class_id", required = false) String classId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
-        User actor = authService.requireRole(token, "STUDENT", "TEACHER");
-        return ApiResponse.success(homeworkService.list(courseClassId, status, pageNo, pageSize, actor));
+        User actor = authService.requireRole(token, "STUDENT", "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(homeworkService.list(courseClassId, classId, status, pageNo, pageSize, actor));
     }
 
     @PostMapping("/api/homeworks")
@@ -71,8 +72,26 @@ public class HomeworkController {
             @RequestParam(value = "submit_status", required = false) String submitStatus,
             @RequestParam("page_no") Integer pageNo,
             @RequestParam("page_size") Integer pageSize) {
-        User actor = authService.requireRole(token, "TEACHER");
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        if ("EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            return ApiResponse.success(homeworkService.listSubmissions(
+                    homeworkId, null, null, submitStatus, pageNo, pageSize, actor));
+        }
         return ApiResponse.success(homeworkService.listSubmits(homeworkId, submitStatus, pageNo, pageSize, actor));
+    }
+
+    @GetMapping({"/api/homework-submits", "/api/homework-submissions", "/api/platform/homework-submissions"})
+    public ApiResponse<Map<String, Object>> listSubmissions(
+            @RequestHeader(value = "token", required = false) String token,
+            @RequestParam(value = "homework_id", required = false) String homeworkId,
+            @RequestParam(value = "class_id", required = false) String classId,
+            @RequestParam(value = "course_class_id", required = false) String courseClassId,
+            @RequestParam(value = "submit_status", required = false) String submitStatus,
+            @RequestParam("page_no") Integer pageNo,
+            @RequestParam("page_size") Integer pageSize) {
+        User actor = authService.requireRole(token, "TEACHER", "EDU_ADMIN");
+        return ApiResponse.success(homeworkService.listSubmissions(
+                homeworkId, classId, courseClassId, submitStatus, pageNo, pageSize, actor));
     }
 
     @PutMapping("/api/homework-reviews/{reviewId}")

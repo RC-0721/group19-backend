@@ -243,6 +243,54 @@ public class ProjectService {
                 "page_no", pageNo, "page_size", pageSize);
     }
 
+    public Map<String, Object> listAllSubmissions(
+            String projectTaskId,
+            String classId,
+            String courseClassId,
+            String submitStatus,
+            Integer pageNo,
+            Integer pageSize,
+            User actor) {
+        if (pageNo == null || pageNo < 1 || pageSize == null || pageSize < 1 || pageSize > 100) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR);
+        }
+        List<Object> params = new ArrayList<>();
+        String where = buildSubmissionWhere(projectTaskId, classId, courseClassId, submitStatus, actor, params);
+        String from = """
+                FROM project_submission ps
+                JOIN project_task pt ON pt.project_task_id = ps.project_task_id
+                LEFT JOIN project_evaluation pe ON pe.submission_id = ps.submission_id
+                LEFT JOIN student_profile sp ON sp.student_id = ps.student_id
+                LEFT JOIN sys_user su ON su.account = ps.student_id
+                LEFT JOIN course c ON c.course_id = pt.course_id
+                LEFT JOIN job_direction jd ON jd.job_id = pt.job_id
+                LEFT JOIN course_class cc ON cc.course_id = pt.course_id AND cc.class_id = sp.class_id
+                LEFT JOIN `class` cls ON cls.class_id = sp.class_id
+                LEFT JOIN sys_user tu ON tu.account = cc.teacher_id
+                """;
+        Integer total = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT ps.submission_id)\n" + from + where,
+                Integer.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((pageNo - 1) * pageSize);
+        List<Map<String, Object>> records = jdbcTemplate.queryForList("""
+                SELECT DISTINCT ps.submission_id, ps.project_task_id, pt.title AS project_title,
+                       pt.course_id, c.course_name, pt.job_id, jd.job_name,
+                       cc.course_class_id, sp.class_id, cls.class_name,
+                       cc.teacher_id, COALESCE(tu.name, cc.teacher_id) AS teacher_name,
+                       ps.student_id, sp.student_no, COALESCE(su.name, ps.student_id) AS student_name,
+                       ps.artifact_path, ps.description, ps.submit_status, ps.submit_time,
+                       pe.evaluation_id, pe.rubric_id, pe.ai_evaluation,
+                       pe.teacher_score, pe.teacher_comment, pe.confirmed_time,
+                       CASE WHEN pe.teacher_score IS NULL THEN '待评价' ELSE '已评价' END AS review_status
+                """ + from + where + """
+                ORDER BY ps.submit_time DESC, ps.submission_id
+                LIMIT ? OFFSET ?
+                """, pageParams.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total,
+                "page_no", pageNo, "page_size", pageSize);
+    }
+
     @Transactional
     public Map<String, Object> confirmEvaluation(String evaluationId, Map<String, Object> request, User actor) {
         if (request == null) {
@@ -365,6 +413,32 @@ public class ProjectService {
         append(where, params, "pt.course_id", courseId);
         append(where, params, "pt.job_id", jobId);
         append(where, params, "pt.status", status);
+        return where.toString();
+    }
+
+    private String buildSubmissionWhere(
+            String projectTaskId,
+            String classId,
+            String courseClassId,
+            String submitStatus,
+            User actor,
+            List<Object> params) {
+        StringBuilder where = new StringBuilder("WHERE 1 = 1\n");
+        if ("TEACHER".equalsIgnoreCase(actor.getRole())) {
+            where.append("""
+                    AND EXISTS (
+                      SELECT 1 FROM course_class cc_scope
+                      WHERE cc_scope.course_id = pt.course_id AND cc_scope.teacher_id = ?
+                    )
+                    """);
+            params.add(actor.getAccount());
+        } else if (!"EDU_ADMIN".equalsIgnoreCase(actor.getRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        append(where, params, "ps.project_task_id", projectTaskId);
+        append(where, params, "sp.class_id", classId);
+        append(where, params, "cc.course_class_id", courseClassId);
+        append(where, params, "ps.submit_status", submitStatus);
         return where.toString();
     }
 

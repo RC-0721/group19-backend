@@ -140,6 +140,39 @@ class ProjectControllerTest {
     }
 
     @Test
+    void listAllSubmissionsAllowsAdminFilters() throws Exception {
+        User admin = user("admin001", "EDU_ADMIN");
+        when(authService.requireRole("admin-token", "TEACHER", "EDU_ADMIN")).thenReturn(admin);
+        when(projectService.listAllSubmissions("project-1", "class-1", "cc-1", "待评价", 1, 10, admin))
+                .thenReturn(Map.of(
+                        "records", List.of(Map.of(
+                                "submission_id", "submit-1",
+                                "evaluation_id", "eval-1",
+                                "student_id", "student001",
+                                "class_id", "class-1",
+                                "course_class_id", "cc-1",
+                                "review_status", "待评价"
+                        )),
+                        "total", 1,
+                        "page_no", 1,
+                        "page_size", 10
+                ));
+
+        mockMvc.perform(get("/api/project-submissions")
+                        .header("token", "admin-token")
+                        .param("project_task_id", "project-1")
+                        .param("class_id", "class-1")
+                        .param("course_class_id", "cc-1")
+                        .param("submit_status", "待评价")
+                        .param("page_no", "1")
+                        .param("page_size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0"))
+                .andExpect(jsonPath("$.data.records[0].evaluation_id").value("eval-1"))
+                .andExpect(jsonPath("$.data.records[0].review_status").value("待评价"));
+    }
+
+    @Test
     void listAcceptsCourseClassFilter() throws Exception {
         User teacher = user("teacher001", "TEACHER");
         when(authService.requireRole("teacher-token", "STUDENT", "TEACHER", "EDU_ADMIN")).thenReturn(teacher);
